@@ -3,21 +3,35 @@ import { FastifyInstance } from 'fastify'
 import { DbUserModel } from '../db/mongo'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  f.get(
+  const tags = ['user']
+
+  f.post(
     '/',
     {
       schema: {
-        tags: ['user'],
+        tags,
         summary: 'Get user config',
+        body: {
+          type: 'object',
+          required: ['select'],
+          properties: {
+            select: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          },
+        },
       },
     },
     async (req, reply) => {
       const u = req.session.user
-      if (u) {
-        return u.toJSON()
+      if (!u) {
+        reply.status(401).send()
+        return
       }
 
-      return reply.status(400).send()
+      const { select } = req.body
+      return (select as string[]).reduce(
+        (prev, k) => ({ ...prev, [k]: u[k] }),
+        {} as Record<string, any>
+      )
     }
   )
 
@@ -25,7 +39,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/',
     {
       schema: {
-        tags: ['user'],
+        tags,
         summary: 'Update user config',
         body: {
           type: 'object',
@@ -50,16 +64,25 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     }
   )
 
-  f.delete('/', async (req, reply) => {
-    const u = req.session.user
-    if (u) {
-      await DbUserModel.purgeOne(u._id)
+  f.delete(
+    '/',
+    {
+      schema: {
+        tags,
+        summary: 'Remove current user from database',
+      },
+    },
+    async (req, reply) => {
+      const u = req.session.user
+      if (u) {
+        await DbUserModel.purgeOne(u._id)
 
-      return reply.status(201).send()
+        return reply.status(201).send()
+      }
+
+      return reply.status(400).send()
     }
-
-    return reply.status(400).send()
-  })
+  )
 
   next()
 }

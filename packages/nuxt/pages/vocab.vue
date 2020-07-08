@@ -347,7 +347,7 @@ export default class VocabPage extends Vue {
   @Watch('q')
   async onQChange(q: string) {
     if (q) {
-      let qs = (await this.$axios.$post('/api/lib/jieba', { entry: q }))
+      let qs = (await this.$axios.$post('/api/lib/jieba', { q }))
         .result as string[]
       qs = qs.filter((h) => XRegExp('\\p{Han}+').test(h))
       this.$set(
@@ -364,21 +364,28 @@ export default class VocabPage extends Vue {
   @Watch('current')
   async loadContent() {
     if (typeof this.current === 'string') {
-      const { vocabs, sentences } = (
-        await this.$axios.$post('/api/vocab/match', {
-          entry: this.current,
-        })
-      ).result
+      const [{ result: vs }, { result: ss }] = await Promise.all([
+        this.$axios.$post('/api/vocab/match', {
+          q: this.current,
+          select: ['simplified', 'traditional', 'pinyin', 'english'],
+        }),
+        this.$axios.$post('/api/sentence/q', {
+          q: this.current,
+          select: ['chinese', 'english'],
+          limit: 10,
+          hasCount: false,
+        }),
+      ])
 
-      if (vocabs.length > 0) {
+      if (vs.length > 0) {
         this.entries = [
           ...this.entries.slice(0, this.i),
-          ...vocabs,
+          ...vs,
           ...this.entries.slice(this.i + 1),
         ]
       }
 
-      this.$set(this, 'sentences', sentences)
+      this.$set(this, 'sentences', ss)
     }
   }
 
@@ -388,9 +395,7 @@ export default class VocabPage extends Vue {
       const { result } = await this.$axios.$post('/api/card/q', {
         cond: { item: this.selectedVocab, type: 'vocab' },
         hasCount: false,
-        projection: {
-          _id: 1,
-        },
+        select: ['_id'],
       })
       this.$set(
         this.vocabIds,
@@ -406,9 +411,7 @@ export default class VocabPage extends Vue {
       const { result } = await this.$axios.$post('/api/card/q', {
         cond: { item: this.selectedSentence, type: 'sentence' },
         hasCount: false,
-        projection: {
-          _id: 1,
-        },
+        select: ['_id'],
       })
       this.$set(
         this.sentenceIds,
@@ -419,26 +422,28 @@ export default class VocabPage extends Vue {
   }
 
   async addToQuiz(item: string, type: string) {
-    await this.$axios.$put('/api/card/', { item, type })
+    await this.$axios.$put('/api/card/', {
+      create: { item, type },
+    })
     this.$buefy.snackbar.open(`Added ${type}: ${item} to quiz`)
 
     type === 'vocab' ? this.loadVocabStatus() : this.loadSentenceStatus()
   }
 
   async removeFromQuiz(item: string, type: string) {
-    const ids =
-      (type === 'vocab' ? this.vocabIds[item] : this.sentenceIds[item]) || []
-    await Promise.all(
-      ids.map((id: string) =>
-        this.$axios.$delete('/api/card/', {
-          data: { id },
-        })
-      )
-    )
+    const id = type === 'vocab' ? this.vocabIds[item] : this.sentenceIds[item]
+
+    if (id) {
+      await this.$axios.$delete('/api/card/', {
+        data: { id },
+      })
+    }
 
     this.$buefy.snackbar.open(`Removed ${type}: ${item} from quiz`)
 
-    type === 'vocab' ? this.loadVocabStatus() : this.loadSentenceStatus()
+    if (id) {
+      type === 'vocab' ? this.loadVocabStatus() : this.loadSentenceStatus()
+    }
   }
 }
 </script>

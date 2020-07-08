@@ -172,7 +172,7 @@ export default class LevelPage extends Vue {
     await this.onUserChange()
 
     this.isLoading = true
-    const data = await this.$axios.$post('/api/vocab/all')
+    const data = await this.$axios.$get('/api/vocab/all')
 
     this.$set(
       this,
@@ -209,7 +209,9 @@ export default class LevelPage extends Vue {
     if (this.email) {
       const {
         settings: { level: { whatToShow } = {} as any } = {},
-      } = await this.$axios.$get('/api/user/')
+      } = await this.$axios.$post('/api/user/', {
+        select: ['settings.level.whatToShow'],
+      })
 
       if (whatToShow) {
         this.$set(this, 'whatToShow', whatToShow)
@@ -222,10 +224,7 @@ export default class LevelPage extends Vue {
           type: 'vocab',
         },
         join: ['quiz'],
-        projection: {
-          item: 1,
-          srsLevel: 1,
-        },
+        select: ['item', 'srsLevel'],
         limit: null,
         hasCount: false,
       })
@@ -245,8 +244,8 @@ export default class LevelPage extends Vue {
   }
 
   @Watch('whatToShow')
-  onWhatToShowChanged() {
-    this.$axios.$patch('/api/user/', {
+  async onWhatToShowChanged() {
+    await this.$axios.$patch('/api/user/', {
       set: {
         'settings.level.whatToShow': this.whatToShow,
       },
@@ -262,10 +261,7 @@ export default class LevelPage extends Vue {
           type: 'vocab',
         },
         join: ['quiz'],
-        projection: {
-          _id: 1,
-          srsLevel: 1,
-        },
+        select: ['_id', 'srsLevel'],
         hasCount: false,
       })
 
@@ -291,24 +287,22 @@ export default class LevelPage extends Vue {
   async addToQuiz(item: string) {
     const type = 'vocab'
 
-    await this.$axios.$put('/api/card/', { item, type })
+    await this.$axios.$put('/api/card/', {
+      create: { item, type },
+    })
     this.$buefy.snackbar.open(`Added ${type}: ${item} to quiz`)
 
     this.loadVocabStatus()
   }
 
   async removeFromQuiz(item: string) {
-    const ids = this.vocabIds[item] || []
-    await Promise.all(
-      ids.map((id: string) =>
-        this.$axios.$delete('/api/card/', {
-          data: { id },
-        })
-      )
-    )
-    this.$buefy.snackbar.open(`Removed vocab: ${item} from quiz`)
-
-    this.loadVocabStatus()
+    if (this.vocabIds[item]) {
+      await this.$axios.$delete('/api/card/', {
+        data: { id: this.vocabIds[item] },
+      })
+      this.$buefy.snackbar.open(`Removed vocab: ${item} from quiz`)
+      this.loadVocabStatus()
+    }
   }
 }
 </script>

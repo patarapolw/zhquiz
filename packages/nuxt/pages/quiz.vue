@@ -490,7 +490,6 @@ import cardDefault from '~/assets/card-default.yaml'
 import { doClick, doMapKeypress } from '~/assets/keypress'
 import { markdownToHtml } from '~/assets/make-html'
 import { speak } from '~/assets/speak'
-import { shuffle } from '~/assets/util'
 
 interface IQuizData {
   type: string
@@ -674,7 +673,9 @@ export default class QuizPage extends Vue {
             settings: {
               quiz: { type, stage, direction, isDue } = {} as any,
             } = {},
-          } = await this.$axios.$get('/api/user/')
+          } = await this.$axios.$post('/api/user/', {
+            select: ['settings.quiz'],
+          })
 
           if (type) {
             this.$set(this, 'type', type)
@@ -695,10 +696,7 @@ export default class QuizPage extends Vue {
         })().catch(console.error),
         (async () => {
           const { result } = await this.$axios.$post('/api/card/q', {
-            projection: {
-              tag: 1,
-              _id: 0,
-            },
+            select: ['tag'],
             limit: null,
             hasCount: false,
           })
@@ -796,28 +794,21 @@ export default class QuizPage extends Vue {
       const { result } = await this.$axios.$post('/api/card/q', {
         cond: { $and },
         join: ['quiz'],
-        projection:
+        select:
           opts && opts._dueIn
-            ? {
-                nextReview: 1,
-              }
-            : {
-                _id: 1,
-                type: 1,
-                item: 1,
-                direction: 1,
-                tag: 1,
-                srsLevel: 1,
-                nextReview: 1,
-                stat: 1,
-              },
+            ? ['nextReview']
+            : [
+                '_id',
+                'type',
+                'item',
+                'direction',
+                'tag',
+                'srsLevel',
+                'nextReview',
+                'stat',
+              ],
         limit: opts && opts._dueIn ? 1 : null,
-        sort:
-          opts && opts._dueIn
-            ? {
-                nextReview: 1,
-              }
-            : undefined,
+        sort: opts && opts._dueIn ? [['nextReview', 1]] : undefined,
         hasCount: false,
       })
 
@@ -873,7 +864,7 @@ export default class QuizPage extends Vue {
   }
 
   async startQuiz() {
-    this.quizItems = shuffle(this.data)
+    this.quizItems = this.data.sort(() => 0.5 - Math.random())
     this.quizIndex = -1
     await this.initNextQuizItem()
 
@@ -922,33 +913,49 @@ export default class QuizPage extends Vue {
         this.isQuizItemReady = false
       }
 
-      const { result } = await this.$axios.$post(`/api/${type}/match`, {
-        entry: item,
-      })
+      let raw = {} as any
 
       if (type === 'vocab') {
-        const { vocabs } = result
-        const simplified = vocabs[0].simplified
+        const [{ result: vs }, { result: ss }] = await Promise.all([
+          this.$axios.$post('/api/vocab/match', {
+            q: item,
+            select: ['simplified', 'traditional', 'pinyin', 'english'],
+          }),
+          this.$axios.$post('/api/sentence/q', {
+            q: item,
+            select: ['chinese', 'english'],
+            limit: 10,
+            hasCount: false,
+          }),
+        ])
+        const simplified = vs[0].simplified
         const u = (k: string) => {
-          const arr = (vocabs as any[])
+          const arr = (vs as any[])
             .map((v) => (v as any)[k] as string)
             .filter((t) => t)
             .filter((t, i, arr) => arr.indexOf(t) === i)
           return arr.length > 0 ? arr : undefined
         }
 
-        Object.assign(result, {
+        raw = {
           simplified,
           traditional: u('traditional'),
           pinyin: u('pinyin')!,
           english: u('english'),
+          sentences: ss,
+        }
+      } else {
+        const { result } = await this.$axios.$post(`/api/${type}/match`, {
+          q: item,
+          select: ['entry', 'chinese', 'pinyin', 'english'],
         })
+        raw = result
       }
 
       data = {
         type,
         item,
-        raw: result,
+        raw,
         cards: [],
       }
 
@@ -957,8 +964,9 @@ export default class QuizPage extends Vue {
 
     let card = data.cards.filter((c) => c._id === _id)[0]
     if (!card) {
-      card = await this.$axios.$get('/api/quiz/card', {
-        params: { id: _id },
+      card = await this.$axios.$post('/api/quiz/', {
+        id: _id,
+        select: ['_id', 'direction', 'front', 'back', 'mnemonic'],
       })
       data.cards.push(card)
     }
@@ -970,9 +978,7 @@ export default class QuizPage extends Vue {
   async markRight() {
     this.isQuizItemReady = false
 
-    await this.$axios.$patch('/api/quiz/right', undefined, {
-      params: { id: this.quizCurrent._id },
-    })
+    await this.$axios.$patch('/api/quiz/right', { id: this.quizCurrent._id })
 
     this.isQuizItemReady = true
     this.initNextQuizItem()
@@ -981,9 +987,7 @@ export default class QuizPage extends Vue {
   async markWrong() {
     this.isQuizItemReady = false
 
-    await this.$axios.$patch('/api/quiz/wrong', undefined, {
-      params: { id: this.quizCurrent._id },
-    })
+    await this.$axios.$patch('/api/quiz/wrong', { id: this.quizCurrent._id })
 
     this.isQuizItemReady = true
     this.initNextQuizItem()
@@ -992,9 +996,7 @@ export default class QuizPage extends Vue {
   async markRepeat() {
     this.isQuizItemReady = false
 
-    await this.$axios.$patch('/api/quiz/repeat', undefined, {
-      params: { id: this.quizCurrent._id },
-    })
+    await this.$axios.$patch('/api/quiz/repeat', { id: this.quizCurrent._id })
 
     this.isQuizItemReady = true
     this.initNextQuizItem()

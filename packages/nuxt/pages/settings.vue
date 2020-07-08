@@ -23,7 +23,7 @@
         <div class="flex flex-row">
           <button
             class="button is-success"
-            :disabled="!user"
+            :disabled="!email"
             type="submit"
             aria-label="save"
           >
@@ -112,11 +112,13 @@ export default class SettingsPage extends Vue {
     this.onUserChanged()
   }
 
-  @Watch('user')
+  @Watch('email')
   async onUserChanged() {
     if (this.email) {
       this.isInit = false
-      const { levelMin, level } = await this.$axios.$get('/api/user/')
+      const { levelMin, level } = await this.$axios.$post('/api/user/', {
+        select: ['levelMin', 'level'],
+      })
       this.lv = [levelMin || 1, level || 60]
       this.isInit = true
     }

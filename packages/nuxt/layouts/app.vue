@@ -193,7 +193,9 @@ export default class AppLayout extends Vue {
     }
 
     if (this.user) {
-      const { level = 60 } = await this.$axios.$get('/api/user/')
+      const { level = 60 } = await this.$axios.$post('/api/user/', {
+        select: ['level'],
+      })
       this.level = level.toString()
     }
   }

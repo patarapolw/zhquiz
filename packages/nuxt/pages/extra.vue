@@ -165,9 +165,8 @@ export default class ExtraPage extends Vue {
     const { result, count } = await this.$axios.$post('/api/extra/q', {
       offset: (this.page - 1) * this.perPage,
       limit: this.perPage,
-      sort: {
-        [this.sort.key]: this.sort.type === 'desc' ? -1 : 1,
-      },
+      select: ['chinese', 'pinyin', 'english'],
+      sort: [[this.sort.key, this.sort.type === 'desc' ? -1 : 1]],
     })
 
     this.$set(this, 'data', result)
@@ -175,7 +174,9 @@ export default class ExtraPage extends Vue {
   }
 
   async addNewItem() {
-    const { type } = await this.$axios.$put('/api/extra/', this.newItem)
+    const { type } = await this.$axios.$put('/api/extra/', {
+      create: this.newItem,
+    })
 
     if (type === 'extra') {
       this.$set(this, 'newItem', {})
@@ -190,7 +191,7 @@ export default class ExtraPage extends Vue {
   async doDelete() {
     await this.$axios.$delete('/api/extra/', {
       data: {
-        ids: [this.selectedRow._id],
+        id: this.selectedRow._id,
       },
     })
     await this.load()
@@ -212,9 +213,7 @@ export default class ExtraPage extends Vue {
           item: this.selectedRow.chinese,
           type: 'extra',
         },
-        projection: {
-          _id: 1,
-        },
+        select: ['_id'],
         hasCount: false,
       })
 
@@ -227,7 +226,9 @@ export default class ExtraPage extends Vue {
   }
 
   async addToQuiz(item = this.selectedRow.chinese, type = 'extra') {
-    await this.$axios.$put('/api/card/', { item, type })
+    await this.$axios.$put('/api/card/', {
+      create: { item, type },
+    })
     this.$buefy.snackbar.open(`Added ${type}: ${item} to quiz`)
 
     this.loadVocabStatus()
@@ -237,14 +238,10 @@ export default class ExtraPage extends Vue {
     const type = 'extra'
     const item = this.selectedRow.chinese
 
-    const ids = this.cardIds[item] || []
-    await Promise.all(
-      ids.map((id: string) =>
-        this.$axios.$delete('/api/card/', {
-          data: { id },
-        })
-      )
-    )
+    const id = this.cardIds[item] || []
+    await this.$axios.$delete('/api/card/', {
+      data: { id },
+    })
     this.$buefy.snackbar.open(`Removed ${type}: ${item} from quiz`)
 
     this.loadVocabStatus()

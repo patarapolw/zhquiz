@@ -4,46 +4,44 @@ import { hsk, zhToken } from '../db/local'
 import { DbCardModel } from '../db/mongo'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
+  const tags = ['hanzi']
+
   f.post(
     '/match',
     {
       schema: {
-        tags: ['hanzi'],
+        tags,
         summary: 'Get data for a given Hanzi',
         body: {
           type: 'object',
-          required: ['entry'],
+          required: ['q', 'select'],
           properties: {
-            entry: { type: 'string' },
+            q: { type: 'string' },
+            select: { type: 'array', minItems: 1, items: { type: 'string' } },
           },
         },
         response: {
           200: {
             type: 'object',
             properties: {
-              result: {
-                type: 'object',
-                properties: {
-                  sup: { type: 'string' },
-                  sub: { type: 'string' },
-                  variants: { type: 'string' },
-                  pinyin: { type: 'string' },
-                  english: { type: 'string' },
-                },
-              },
+              sup: { type: 'string' },
+              sub: { type: 'string' },
+              variants: { type: 'string' },
+              pinyin: { type: 'string' },
+              english: { type: 'string' },
             },
           },
         },
       },
     },
     async (req) => {
-      const { entry } = req.body
-      const { sub, sup, variants, pinyin, english } =
-        zhToken.findOne({ entry }) || {}
+      const { q, select } = req.body
+      const r = zhToken.findOne({ entry: q }) || ({} as any)
 
-      return {
-        result: { sub, sup, variants, pinyin, english },
-      }
+      return (select as string[]).reduce(
+        (prev, k) => ({ ...prev, [k]: r[k] }),
+        {} as Record<string, any>
+      )
     }
   )
 
@@ -51,13 +49,25 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/random',
     {
       schema: {
-        tags: ['hanzi'],
+        tags,
         summary: 'Randomize a Hanzi for a given level',
         body: {
           type: 'object',
           properties: {
-            levelMin: { type: 'integer' },
-            level: { type: 'integer' },
+            cond: {
+              type: 'object',
+              properties: {
+                level: {
+                  anyOf: [
+                    { type: 'integer' },
+                    {
+                      type: 'array',
+                      items: [{ type: 'integer' }, { type: 'integer' }],
+                    },
+                  ],
+                },
+              },
+            },
           },
         },
         response: {
@@ -79,14 +89,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         return
       }
 
-      const { levelMin, level } = req.body
+      const { cond: { level } = {} as any } = req.body
+      const [lvMin, lvMax] = Array.isArray(level) ? level : [1, level || 60]
 
       const hsMap = new Map<string, number>()
 
       Object.entries(hsk)
         .map(([lv, vs]) => ({ lv: parseInt(lv), vs }))
-        .filter(({ lv }) => (level ? lv <= level : true))
-        .filter(({ lv }) => (levelMin ? lv >= levelMin : true))
+        .filter(({ lv }) => lv <= lvMax && lv >= lvMin)
         .map(({ lv, vs }) => {
           vs.map((v) => {
             v.split('').map((h) => {

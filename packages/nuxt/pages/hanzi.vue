@@ -481,24 +481,27 @@ export default class HanziPage extends Vue {
   }
 
   async loadHanzi() {
-    const r = (
-      await this.$axios.$post('/api/hanzi/match', { entry: this.current })
-    ).result
-    this.sub = r.sub
-    this.sup = r.sup
-    this.variants = r.variants
+    const { sub, sup, variants } = await this.$axios.$post('/api/hanzi/match', {
+      q: this.current,
+      select: ['sub', 'sup', 'variants'],
+    })
+    this.sub = sub
+    this.sup = sup
+    this.variants = variants
   }
 
   async loadVocab() {
     const { result } = await this.$axios.$post('/api/vocab/q', {
-      entry: this.current,
+      q: this.current,
+      select: ['simplified', 'traditional', 'pinyin', 'english'],
     })
     this.$set(this, 'vocabs', result)
   }
 
   async loadSentences() {
     const { result } = await this.$axios.$post('/api/sentence/q', {
-      entry: this.current,
+      q: this.current,
+      select: ['chinese', 'pinyin', 'english'],
     })
     this.$set(this, 'sentences', result)
   }
@@ -511,7 +514,7 @@ export default class HanziPage extends Vue {
           item: this.selectedHanzi,
           type: 'hanzi',
         },
-        projection: { _id: 1 },
+        select: ['_id'],
         hasCount: false,
       })
       this.$set(this.hanziIds, this.selectedHanzi, !!result.length)
@@ -526,7 +529,7 @@ export default class HanziPage extends Vue {
           item: this.selectedVocab,
           type: 'vocab',
         },
-        projection: { _id: 1 },
+        select: ['_id'],
         hasCount: false,
       })
       this.$set(this.vocabIds, this.selectedVocab, !!result.length)
@@ -537,11 +540,12 @@ export default class HanziPage extends Vue {
   async loadSentenceStatus() {
     if (this.selectedSentence) {
       const { result } = await this.$axios.$post('/api/card/q', {
-        cond: { item: this.selectedSentence, type: 'sentence' },
-        hasCount: false,
-        projection: {
-          _id: 1,
+        cond: {
+          item: this.selectedSentence,
+          type: 'sentence',
         },
+        select: ['_id'],
+        hasCount: false,
       })
       this.$set(
         this.sentenceIds,
@@ -552,22 +556,21 @@ export default class HanziPage extends Vue {
   }
 
   async addToQuiz(item: string, type: string) {
-    await this.$axios.$put('/api/card/', { item, type })
+    await this.$axios.$put('/api/card/', {
+      create: { item, type },
+    })
     this.$buefy.snackbar.open(`Added ${type}: ${item} to quiz`)
 
     type === 'vocab' ? this.loadVocabStatus() : this.loadHanziStatus()
   }
 
   async removeFromQuiz(item: string, type: string) {
-    const ids =
-      (type === 'vocab' ? this.vocabIds[item] : this.hanziIds[item]) || []
-    await Promise.all(
-      ids.map((id: string) =>
-        this.$axios.$delete('/api/card/', {
-          data: { id },
-        })
-      )
-    )
+    await this.$axios.$delete('/api/card/', {
+      data: {
+        id:
+          (type === 'vocab' ? this.vocabIds[item] : this.hanziIds[item]) || [],
+      },
+    })
     this.$buefy.snackbar.open(`Removed ${type}: ${item} from quiz`)
 
     type === 'vocab' ? this.loadVocabStatus() : this.loadHanziStatus()

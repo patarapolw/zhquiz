@@ -6,7 +6,7 @@ import {
   setGlobalOptions,
   Severity,
 } from '@typegoose/typegoose'
-import dotProp from 'dot-prop'
+import dotProp from 'dot-prop-immutable'
 import { nanoid } from 'nanoid'
 
 import { getNextReview, repeatReview, srsMap } from './quiz'
@@ -117,38 +117,38 @@ class DbQuiz {
       this.stat = this.stat || {}
 
       if (dSrsLevel > 0) {
-        dotProp.set(
+        this.stat = dotProp.set(
           this.stat,
           'streak.right',
           dotProp.get(this.stat, 'streak.right', 0) + 1
         )
-        dotProp.set(this.stat, 'streak.wrong', 0)
-        dotProp.set(this.stat, 'lastRight', new Date())
+        this.stat = dotProp.set(this.stat, 'streak.wrong', 0)
+        this.stat = dotProp.set(this.stat, 'lastRight', new Date())
 
         if (
           dotProp.get(this.stat, 'streak.right', 1) >
           dotProp.get(this.stat, 'streak.maxRight', 0)
         ) {
-          dotProp.set(
+          this.stat = dotProp.set(
             this.stat,
             'streak.maxRight',
             dotProp.get(this.stat, 'streak.right', 1)
           )
         }
       } else if (dSrsLevel < 0) {
-        dotProp.set(
+        this.stat = dotProp.set(
           this.stat,
           'streak.wrong',
           dotProp.get(this.stat, 'streak.wrong', 0) + 1
         )
-        dotProp.set(this.stat, 'streak.right', 0)
-        dotProp.set(this.stat, 'lastWrong', new Date())
+        this.stat = dotProp.set(this.stat, 'streak.right', 0)
+        this.stat = dotProp.set(this.stat, 'lastWrong', new Date())
 
         if (
           dotProp.get(this.stat, 'streak.wrong', 1) >
           dotProp.get(this.stat, 'streak.maxWrong', 0)
         ) {
-          dotProp.set(
+          this.stat = dotProp.set(
             this.stat,
             'streak.maxWrong',
             dotProp.get(this.stat, 'streak.wrong', 1)

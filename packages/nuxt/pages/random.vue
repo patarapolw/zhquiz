@@ -310,7 +310,9 @@ export default class RandomPage extends Vue {
   @Watch('$store.state.user')
   async onUserChanged() {
     if (this.$store.state.user) {
-      const { levelMin, level } = await this.$axios.$get('/api/user/')
+      const { levelMin, level } = await this.$axios.$post('/api/user/', {
+        select: ['levelMin', 'level'],
+      })
       this.levelMin = levelMin || 1
       this.level = level || 60
     }
@@ -322,8 +324,9 @@ export default class RandomPage extends Vue {
       const { result, english = null } = await this.$axios.$post(
         '/api/hanzi/random',
         {
-          levelMin: this.levelMin,
-          level: this.level,
+          cond: {
+            level: [this.levelMin, this.level],
+          },
         }
       )
 
@@ -339,8 +342,9 @@ export default class RandomPage extends Vue {
       const { result, english = null } = await this.$axios.$post(
         '/api/vocab/random',
         {
-          levelMin: this.levelMin,
-          level: this.level,
+          cond: {
+            level: [this.levelMin, this.level],
+          },
         }
       )
 
@@ -356,8 +360,9 @@ export default class RandomPage extends Vue {
       const { result, english = null } = await this.$axios.$post(
         '/api/sentence/random',
         {
-          levelMin: this.levelMin,
-          level: this.level,
+          cond: {
+            level: [this.levelMin, this.level],
+          },
         }
       )
       this.sentence.item = result
@@ -376,7 +381,7 @@ export default class RandomPage extends Vue {
           item: item.item,
           type: item.type,
         },
-        projection: { _id: 1 },
+        select: ['_id'],
         hasCount: false,
       })
 
@@ -392,7 +397,9 @@ export default class RandomPage extends Vue {
 
   async addToQuiz(item: any) {
     if (this.$store.state.user) {
-      await this.$axios.$put('/api/card/', item)
+      await this.$axios.$put('/api/card/', {
+        create: item,
+      })
       this.getQuizStatus(item)
 
       this.$buefy.snackbar.open(`Added ${item.type}: ${item.item} to quiz`)
@@ -403,14 +410,12 @@ export default class RandomPage extends Vue {
     if (this.$store.state.user) {
       const vm = this as any
 
-      await Promise.all(
-        vm[item.type].id.map((i: string) =>
-          this.$axios.$delete('/api/card/', {
-            data: { id: i },
-          })
-        )
-      )
-      this.getQuizStatus(item)
+      if (vm[item.type].id.length) {
+        await this.$axios.$delete('/api/card/', {
+          data: { id: vm[item.type].id },
+        })
+        this.getQuizStatus(item)
+      }
 
       this.$buefy.snackbar.open(`Removed ${item.type}: ${item.item} from quiz`)
     }

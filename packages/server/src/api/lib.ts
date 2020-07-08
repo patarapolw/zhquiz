@@ -3,17 +3,19 @@ import { FastifyInstance } from 'fastify'
 import jieba from 'nodejieba'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
+  const tags = ['lib']
+
   f.post(
     '/jieba',
     {
       schema: {
-        tags: ['lib'],
+        tags,
         summary: 'Cut chinese text into segments',
         body: {
           type: 'object',
-          required: ['entry'],
+          required: ['q'],
           properties: {
-            entry: { type: 'string' },
+            q: { type: 'string' },
           },
         },
         response: {
@@ -27,10 +29,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req) => {
-      const { entry } = req.body
+      const { q } = req.body
 
       return {
-        result: jieba.cut(entry),
+        result: jieba.cut(q),
       }
     }
   )
@@ -39,13 +41,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/pinyin',
     {
       schema: {
-        tags: ['lib'],
+        tags,
         summary: 'Generate pinyin from Chinese text',
         body: {
           type: 'object',
-          required: ['entry'],
+          required: ['q'],
           properties: {
-            entry: { type: 'string' },
+            q: { type: 'string' },
           },
         },
         response: {
@@ -59,10 +61,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req) => {
-      const { entry } = req.body
+      const { q } = req.body
 
       return {
-        result: pinyin(entry, { keepRest: true }),
+        result: pinyin(q, { keepRest: true }),
       }
     }
   )

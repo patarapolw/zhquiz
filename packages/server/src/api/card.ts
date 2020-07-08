@@ -2,26 +2,30 @@ import { FastifyInstance } from 'fastify'
 
 import { zhVocab } from '../db/local'
 import { DbCardModel } from '../db/mongo'
-import { restoreDate } from '../util'
+import { arrayize, reduceToObj, restoreDate } from '../util'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
+  const tags = ['card']
+
   f.post(
     '/q',
     {
       schema: {
-        tags: ['card'],
+        tags,
         summary: 'Query for cards',
         body: {
           type: 'object',
+          required: ['select'],
           properties: {
             cond: { type: 'object' },
-            projection: {
-              type: 'object',
-              additionalProperties: { type: 'number' },
-            },
+            select: { type: 'array', minItems: 1, items: { type: 'string' } },
             sort: {
-              type: 'object',
-              additionalProperties: { type: 'number' },
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'array',
+                items: [{ type: 'string' }, { type: 'integer', enum: [-1, 1] }],
+              },
             },
             offset: { type: 'integer' },
             limit: { type: ['integer', 'null'] },
@@ -51,8 +55,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
       const {
         cond = {},
-        projection,
-        sort = { updatedAt: -1 },
+        select,
+        sort = [['updatedAt', -1]],
         offset = 0,
         limit = 10,
         join = [] as string[],
@@ -87,10 +91,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       const [rData, rCount = []] = await Promise.all([
         DbCardModel.aggregate([
           ...match,
-          { $sort: sort },
+          { $sort: reduceToObj(sort) },
           { $skip: offset },
           ...(limit ? [{ $limit: limit }] : []),
-          ...(projection ? [{ $project: projection }] : []),
+          {
+            $project: Object.assign(
+              { _id: 0 },
+              reduceToObj((select as string[]).map((k) => [k, 1]))
+            ),
+          },
         ]),
         hasCount
           ? DbCardModel.aggregate([...match, { $count: 'count' }])
@@ -110,14 +119,20 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/',
     {
       schema: {
-        tags: ['card'],
+        tags,
         summary: 'Create a card',
         body: {
           type: 'object',
-          required: ['item', 'type'],
+          required: ['create'],
           properties: {
-            item: { type: 'string' },
-            type: { type: 'string' },
+            create: {
+              type: 'object',
+              required: ['item', 'type'],
+              properties: {
+                item: { type: 'string' },
+                type: { type: 'string' },
+              },
+            },
           },
         },
       },
@@ -129,7 +144,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         return
       }
 
-      const { item, type } = req.body
+      const {
+        create: { item, type },
+      } = req.body
       const directions = ['se', 'ec']
 
       if (type === 'vocab') {
@@ -169,7 +186,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/',
     {
       schema: {
-        tags: ['card'],
+        tags,
         summary: 'Update a card',
         body: {
           type: 'object',
@@ -196,13 +213,18 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/',
     {
       schema: {
-        tags: ['card'],
+        tags,
         summary: 'Delete a card',
         body: {
           type: 'object',
           required: ['id'],
           properties: {
-            id: { type: 'string' },
+            id: {
+              anyOf: [
+                { type: 'string' },
+                { type: 'array', items: { type: 'string' } },
+              ],
+            },
           },
         },
       },
@@ -215,7 +237,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       }
 
       const { id } = req.body
-      await DbCardModel.purgeMany(u._id, { _id: id })
+      await DbCardModel.purgeMany(u._id, { _id: { $in: arrayize<string>(id) } })
 
       reply.status(201).send()
     }

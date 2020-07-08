@@ -3,8 +3,11 @@ import { FastifyInstance } from 'fastify'
 
 import { zhSentence } from '../db/local'
 import { DbCardModel } from '../db/mongo'
+import { pickObj } from '../util'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
+  const tags = ['sentence']
+
   const isSimp = (s = '') => {
     const arr = [
       'simplified',
@@ -19,13 +22,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/match',
     {
       schema: {
-        tags: ['sentence'],
+        tags,
         summary: 'Get sentence data',
         body: {
           type: 'object',
-          required: ['entry'],
+          required: ['q', 'select'],
           properties: {
-            entry: { type: 'string' },
+            q: { type: 'string' },
+            select: { type: 'array', minItems: 1, items: { type: 'string' } },
           },
         },
         response: {
@@ -49,22 +53,22 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req) => {
-      const { entry } = req.body
+      const { q, select } = req.body
 
       return {
         result: zhSentence
           .find({
-            chinese: entry,
+            chinese: q,
           })
           .sort(({ type: t1 }, { type: t2 }) => {
             return isSimp(t1) - isSimp(t2) + 0.5 - Math.random()
           })
           .map(({ chinese, pinyin, english }) => {
-            if (!pinyin) {
-              pinyin = makePinyin(entry, { keepRest: true })
+            if (select.includes('pinyin') && !pinyin) {
+              pinyin = makePinyin(chinese, { keepRest: true })
             }
 
-            return { chinese, pinyin, english }
+            return pickObj({ chinese, pinyin, english }, select)
           }),
       }
     }
@@ -74,13 +78,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/q',
     {
       schema: {
-        tags: ['sentence'],
+        tags,
         summary: 'Query for a given sentence',
         body: {
           type: 'object',
-          required: ['entry'],
+          required: ['q', 'select'],
           properties: {
-            entry: { type: 'string' },
+            q: { type: 'string' },
+            select: { type: 'array', minItems: 1, items: { type: 'string' } },
             offset: { type: 'integer' },
             limit: { type: 'integer' },
           },
@@ -93,7 +98,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                 type: 'array',
                 items: {
                   type: 'object',
-                  required: ['chinese', 'english'],
                   properties: {
                     chinese: { type: 'string' },
                     pinyin: { type: 'string' },
@@ -110,26 +114,26 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req) => {
-      const { entry, offset = 0, limit = 10 } = req.body
+      const { q, select, offset = 0, limit = 10 } = req.body
 
       return {
         result: zhSentence
           .find({
-            chinese: { $contains: entry },
+            chinese: { $contains: q },
           })
           .sort(({ type: t1 }, { type: t2 }) => {
             return isSimp(t1) - isSimp(t2) + 0.5 - Math.random()
           })
           .slice(offset, limit ? offset + limit : undefined)
           .map(({ chinese, pinyin, english }) => {
-            if (!pinyin) {
-              pinyin = makePinyin(entry, { keepRest: true })
+            if (select.includes('pinyin') && !pinyin) {
+              pinyin = makePinyin(chinese, { keepRest: true })
             }
 
-            return { chinese, pinyin, english }
+            return pickObj({ chinese, pinyin, english }, select)
           }),
         count: zhSentence.count({
-          chinese: { $contains: entry },
+          chinese: { $contains: q },
         }),
         offset,
         limit,
@@ -141,13 +145,25 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/random',
     {
       schema: {
-        tags: ['sentence'],
+        tags,
         summary: 'Randomize a sentence for a given level',
         body: {
           type: 'object',
           properties: {
-            level: { type: 'integer' },
-            levelMin: { type: 'integer' },
+            cond: {
+              type: 'object',
+              properties: {
+                level: {
+                  anyOf: [
+                    { type: 'integer' },
+                    {
+                      type: 'array',
+                      items: [{ type: 'integer' }, { type: 'integer' }],
+                    },
+                  ],
+                },
+              },
+            },
           },
         },
         response: {
@@ -197,12 +213,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         ])
       ).map((el) => el.item)
 
-      const { levelMin, level } = req.body
+      const { cond: { level } = {} as any } = req.body
+      const [lvMin, lvMax] = Array.isArray(level) ? level : [1, level || 60]
+
       const getSentence = (type: any) => {
         const ss = zhSentence.find({
           $and: [
-            { level: { $lte: level || 60 } },
-            { level: { $gte: levelMin || 1 } },
+            { level: { $lte: lvMax } },
+            { level: { $gte: lvMin } },
             { chinese: { $nin: reviewing } },
             { type },
           ],

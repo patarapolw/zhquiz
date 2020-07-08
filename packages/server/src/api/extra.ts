@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 
 import { zhSentence, zhToken, zhVocab } from '../db/local'
 import { DbExtraModel } from '../db/mongo'
+import { reduceToObj } from '../util'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   f.post(
@@ -12,15 +13,17 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         summary: 'Query for user-created items',
         body: {
           type: 'object',
+          required: ['select'],
           properties: {
             cond: { type: 'object' },
-            projection: {
-              type: 'object',
-              additionalProperties: { type: 'number' },
-            },
+            select: { type: 'array', minItems: 1, items: { type: 'string' } },
             sort: {
-              type: 'object',
-              additionalProperties: { type: 'number' },
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'array',
+                items: [{ type: 'string' }, { type: 'integer', enum: [-1, 1] }],
+              },
             },
             offset: { type: 'integer' },
             limit: { type: ['integer', 'null'] },
@@ -49,8 +52,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
       const {
         cond = {},
-        projection,
-        sort = { updatedAt: -1 },
+        select,
+        sort = [['updatedAt', -1]],
         offset = 0,
         limit = 10,
         hasCount = true,
@@ -61,10 +64,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       const [rData, rCount = []] = await Promise.all([
         DbExtraModel.aggregate([
           ...match,
-          { $sort: sort },
+          { $sort: reduceToObj(sort) },
           { $skip: offset },
           ...(limit ? [{ $limit: limit }] : []),
-          ...(projection ? [{ $project: projection }] : []),
+          {
+            $project: Object.assign(
+              { _id: 0 },
+              reduceToObj((select as string[]).map((k) => [k, 1]))
+            ),
+          },
         ]),
         hasCount
           ? DbExtraModel.aggregate([...match, { $count: 'count' }])
@@ -88,35 +96,32 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         summary: 'Get data for a given user-created item',
         body: {
           type: 'object',
-          required: ['entry'],
+          required: ['q', 'select'],
           properties: {
-            entry: { type: 'string' },
+            q: { type: 'string' },
+            select: { type: 'array', minItems: 1, items: { type: 'string' } },
           },
         },
         response: {
           200: {
             type: 'object',
             properties: {
-              result: {
-                type: 'object',
-                properties: {
-                  chinese: { type: 'string' },
-                  pinyin: { type: 'string' },
-                  english: { type: 'string' },
-                },
-              },
+              chinese: { type: 'string' },
+              pinyin: { type: 'string' },
+              english: { type: 'string' },
             },
           },
         },
       },
     },
     async (req) => {
-      const { entry } = req.body
-      const r = await DbExtraModel.findOne({ chinese: entry })
+      const { q, select } = req.body
+      const r = (await DbExtraModel.findOne({ chinese: q })) || ({} as any)
 
-      return {
-        result: r ? r.toJSON() : {},
-      }
+      return (select as string[]).reduce(
+        (prev, k) => ({ ...prev, [k]: r[k] }),
+        {} as Record<string, any>
+      )
     }
   )
 
@@ -128,11 +133,18 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         summary: 'Create a user-created item',
         body: {
           type: 'object',
-          required: ['chinese', 'english'],
+          required: ['create'],
           properties: {
-            chinese: { type: 'string' },
-            pinyin: { type: 'string' },
-            english: { type: 'string' },
+            create: {
+              type: 'object',
+              required: ['chinese', 'english'],
+              properties: {
+                chinese: { type: 'string' },
+                pinyin: { type: 'string' },
+                english: { type: 'string' },
+              },
+            },
+            // select: { type: 'array', minItems: 1, items: { type: 'string' } },
           },
         },
         response: {
@@ -203,19 +215,19 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         summary: 'Update user-created items',
         body: {
           type: 'object',
-          required: ['ids', 'set'],
+          required: ['id', 'set'],
           properties: {
-            ids: { type: 'array', items: { type: 'string' } },
+            id: { type: 'array', items: { type: 'string' } },
             set: { type: 'object' },
           },
         },
       },
     },
     async (req, reply) => {
-      const { ids, set } = req.body
+      const { id, set } = req.body
 
       await DbExtraModel.updateMany(
-        { _id: { $in: ids } },
+        { _id: { $in: id } },
         {
           $set: set,
         }
@@ -233,9 +245,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         summary: 'Delete user-created items',
         body: {
           type: 'object',
-          required: ['ids'],
+          required: ['id'],
           properties: {
-            ids: { type: 'array', items: { type: 'string' } },
+            id: { type: 'array', items: { type: 'string' } },
           },
         },
       },
@@ -247,8 +259,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         return
       }
 
-      const { ids } = req.body
-      await DbExtraModel.purgeMany(u._id, { _id: { $in: ids } })
+      const { id } = req.body
+      await DbExtraModel.purgeMany(u._id, { _id: { $in: id } })
       reply.status(201).send()
     }
   )

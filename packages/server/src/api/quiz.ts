@@ -1,19 +1,23 @@
 import { FastifyInstance } from 'fastify'
 
 import { DbCardModel, DbQuizModel } from '../db/mongo'
+import { reduceToObj } from '../util'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  f.get(
-    '/card',
+  const tags = ['quiz']
+
+  f.post(
+    '/',
     {
       schema: {
-        tags: ['quiz'],
+        tags,
         summary: 'Get card info for quiz',
-        querystring: {
+        body: {
           type: 'object',
-          required: ['id'],
+          required: ['id', 'select'],
           properties: {
             id: { type: 'string' },
+            select: { type: 'array', items: { type: 'string' }, minItems: 1 },
           },
         },
         response: {
@@ -29,14 +33,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req) => {
-      const { id } = req.query
-      const r = await DbCardModel.findById(id).select({
-        front: 1,
-        back: 1,
-        mnemonic: 1,
-      })
+      const { id, select } = req.body
+      const r =
+        (await DbCardModel.findById(id).select(
+          Object.assign(
+            { _id: 0 },
+            reduceToObj((select as string[]).map((k) => [k, 1]))
+          )
+        )) || ({} as any)
 
-      return r ? r.toJSON() : {}
+      return r
     }
   )
 
@@ -44,9 +50,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/right',
     {
       schema: {
-        tags: ['quiz'],
+        tags,
         summary: 'Mark card as right',
-        querystring: {
+        body: {
           type: 'object',
           required: ['id'],
           properties: {
@@ -56,7 +62,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req, reply) => {
-      const { id } = req.query
+      const { id } = req.body
 
       let quiz = await DbQuizModel.findOne({ cardId: id })
       if (!quiz) {
@@ -74,9 +80,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/wrong',
     {
       schema: {
-        tags: ['quiz'],
+        tags,
         summary: 'Mark card as wrong',
-        querystring: {
+        body: {
           type: 'object',
           required: ['id'],
           properties: {
@@ -86,7 +92,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req, reply) => {
-      const { id } = req.query
+      const { id } = req.body
 
       let quiz = await DbQuizModel.findOne({ cardId: id })
       if (!quiz) {
@@ -104,9 +110,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/repeat',
     {
       schema: {
-        tags: ['quiz'],
+        tags,
         summary: 'Mark card as repeat',
-        querystring: {
+        body: {
           type: 'object',
           required: ['id'],
           properties: {
@@ -116,7 +122,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req, reply) => {
-      const { id } = req.query
+      const { id } = req.body
 
       let quiz = await DbQuizModel.findOne({ cardId: id })
       if (!quiz) {

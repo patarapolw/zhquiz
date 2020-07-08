@@ -1,31 +1,25 @@
 import makePinyin from 'chinese-to-pinyin'
 import { FastifyInstance } from 'fastify'
 
-import { hsk, zhSentence, zhVocab } from '../db/local'
+import { hsk, zhVocab } from '../db/local'
 import { DbCardModel } from '../db/mongo'
+import { pickObj } from '../util'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const isSimp = (s = '') => {
-    const arr = [
-      'simplified',
-      'simplified-english',
-      'traditional',
-      'traditional-english',
-    ]
-    return -(arr.reverse().indexOf(s) + 1) / arr.length
-  }
+  const tags = ['vocab']
 
   f.post(
     '/q',
     {
       schema: {
-        tags: ['vocab'],
+        tags,
         summary: 'Query for a given vocab',
         body: {
           type: 'object',
-          required: ['entry'],
+          required: ['q', 'select'],
           properties: {
-            entry: { type: 'string' },
+            q: { type: 'string' },
+            select: { type: 'array', minItems: 1, items: { type: 'string' } },
             offset: { type: 'integer' },
             limit: { type: 'integer' },
           },
@@ -38,7 +32,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                 type: 'array',
                 items: {
                   type: 'object',
-                  required: ['simplified', 'pinyin', 'english'],
                   properties: {
                     simplified: { type: 'string' },
                     traditional: { type: 'string' },
@@ -56,29 +49,29 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req) => {
-      const { entry, offset = 0, limit = 10 } = req.body
+      const { q, select, offset = 0, limit = 10 } = req.body
 
       return {
         result: zhVocab
           .find({
             $or: [
-              { simplified: { $contains: entry } },
-              { traditional: { $contains: entry } },
+              { simplified: { $contains: q } },
+              { traditional: { $contains: q } },
             ],
           })
           .sort(({ frequency: f1 = 0 }, { frequency: f2 = 0 }) => f2 - f1)
           .slice(offset, limit ? offset + limit : undefined)
           .map(({ simplified, traditional, pinyin, english }) => {
-            if (!pinyin) {
+            if (select.includes('pinyin') && !pinyin) {
               pinyin = makePinyin(simplified, { keepRest: true })
             }
 
-            return { simplified, traditional, pinyin, english }
+            return pickObj({ simplified, traditional, pinyin, english }, select)
           }),
         count: zhVocab.count({
           $or: [
-            { simplified: { $contains: entry } },
-            { traditional: { $contains: entry } },
+            { simplified: { $contains: q } },
+            { traditional: { $contains: q } },
           ],
         }),
         offset,
@@ -91,13 +84,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/match',
     {
       schema: {
-        tags: ['vocab'],
+        tags,
         summary: 'Get translation for a given vocab',
         body: {
           type: 'object',
-          required: ['entry'],
+          required: ['q', 'select'],
           properties: {
-            entry: { type: 'string' },
+            q: { type: 'string' },
+            select: { type: 'array', minItems: 1, items: { type: 'string' } },
           },
         },
         response: {
@@ -105,30 +99,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             type: 'object',
             properties: {
               result: {
-                type: 'object',
-                properties: {
-                  vocabs: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        simplified: { type: 'string' },
-                        traditional: { type: 'string' },
-                        pinyin: { type: 'string' },
-                        english: { type: 'string' },
-                      },
-                    },
-                  },
-                  sentences: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        chinese: { type: 'string' },
-                        pinyin: { type: 'string' },
-                        english: { type: 'string' },
-                      },
-                    },
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    simplified: { type: 'string' },
+                    traditional: { type: 'string' },
+                    pinyin: { type: 'string' },
+                    english: { type: 'string' },
                   },
                 },
               },
@@ -138,37 +116,20 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
     },
     async (req) => {
-      const { entry } = req.body
+      const { q, select } = req.body
 
       return {
-        result: {
-          vocabs: zhVocab
-            .find({
-              $or: [{ simplified: entry }, { traditional: entry }],
-            })
-            .map(({ simplified, traditional, pinyin, english }) => {
-              if (!pinyin) {
-                pinyin = makePinyin(simplified, { keepRest: true })
-              }
+        result: zhVocab
+          .find({
+            $or: [{ simplified: q }, { traditional: q }],
+          })
+          .map(({ simplified, traditional, pinyin, english }) => {
+            if (select.includes('pinyin') && !pinyin) {
+              pinyin = makePinyin(simplified, { keepRest: true })
+            }
 
-              return { simplified, traditional, pinyin, english }
-            }),
-          sentences: zhSentence
-            .find({
-              chinese: { $contains: entry },
-            })
-            .sort(({ type: t1 }, { type: t2 }) => {
-              return isSimp(t1) - isSimp(t2) + 0.5 - Math.random()
-            })
-            .slice(0, 10)
-            .map(({ chinese, pinyin, english }) => {
-              if (!pinyin) {
-                pinyin = makePinyin(entry, { keepRest: true })
-              }
-
-              return { chinese, pinyin, english }
-            }),
-        },
+            return pickObj({ simplified, traditional, pinyin, english }, select)
+          }),
       }
     }
   )
@@ -177,13 +138,25 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     '/random',
     {
       schema: {
-        tags: ['vocab'],
+        tags,
         summary: 'Randomize a vocab for a given level',
         body: {
           type: 'object',
           properties: {
-            level: { type: 'integer' },
-            levelMin: { type: 'integer' },
+            cond: {
+              type: 'object',
+              properties: {
+                level: {
+                  anyOf: [
+                    { type: 'integer' },
+                    {
+                      type: 'array',
+                      items: [{ type: 'integer' }, { type: 'integer' }],
+                    },
+                  ],
+                },
+              },
+            },
           },
         },
         response: {
@@ -205,12 +178,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         return
       }
 
-      const { levelMin, level } = req.body
+      const { cond: { level } = {} as any } = req.body
+      const [lvMin, lvMax] = Array.isArray(level) ? level : [1, level || 60]
 
       let vs = Object.entries(hsk)
         .map(([lv, vs]) => ({ lv: parseInt(lv), vs }))
-        .filter(({ lv }) => (level ? lv <= level : true))
-        .filter(({ lv }) => (level ? lv >= levelMin : true))
+        .filter(({ lv }) => lv <= lvMax && lv >= lvMin)
         .reduce(
           (prev, { lv, vs }) => [...prev, ...vs.map((v) => ({ v, lv }))],
           [] as {
@@ -272,11 +245,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     }
   )
 
-  f.post(
+  f.get(
     '/all',
     {
       schema: {
-        tags: ['vocab'],
+        tags,
         summary: 'Get all leveled vocabs',
         response: {
           200: {
