@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^5.4.0",
+    "@types/fs-extra": "^9.0.1",
     "@types/js-yaml": "^3.12.3",
     "@types/lokijs": "^1.5.3",
     "@types/mongoose": "^5.7.12",
@@ -56,6 +57,7 @@
     "eslint-plugin-simple-import-sort": "^5.0.3",
     "eslint-plugin-standard": ">=4.0.0",
     "fastify-cors": "^3.0.3",
+    "fs-extra": "^9.0.1",
     "js-yaml": "^3.13.1",
     "log-buffer": "^0.0.3",
     "pino-pretty": "^4.0.0",

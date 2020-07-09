@@ -15,7 +15,7 @@ import {
   zhInit,
   zhToken,
 } from '@/db/local'
-import { ensureSchema } from '@/schema-util'
+import { ensureSchema } from '@/util/schema'
 
 async function main() {
   // require('log-buffer')

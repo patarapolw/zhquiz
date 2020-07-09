@@ -6,18 +6,34 @@ import {
   Severity,
 } from '@typegoose/typegoose'
 import dotProp from 'dot-prop-immutable'
+import S from 'jsonschema-definer'
 import { nanoid } from 'nanoid'
 
 import { getNextReview, repeatReview, srsMap } from './quiz'
 
 setGlobalOptions({ options: { allowMixed: Severity.ALLOW } })
 
+export const sUserSettings = S.shape({
+  level: S.shape({
+    whatToShow: S.string(),
+  }),
+  quiz: S.shape({
+    type: S.list(S.string()),
+    stage: S.list(S.string()),
+    direction: S.list(S.string()),
+    isDue: S.boolean(),
+  }),
+}).partial()
+
 export class DbUser {
   @prop({ required: true, unique: true }) email!: string
   @prop() name!: string
   @prop({ default: 1 }) levelMin?: number
   @prop({ default: 60 }) level?: number
-  @prop() settings?: Record<string, any>
+  @prop({
+    validate: (s) => typeof s === 'undefined' || !!sUserSettings.validate(s)[1],
+  })
+  settings?: typeof sUserSettings.type
 
   static async signIn(email: string, name: string) {
     let user = await DbUserModel.findOne({ email })
@@ -38,8 +54,8 @@ export class DbUser {
   }
 
   static async purgeOne(userId: string) {
-    await DbExtraModel.purgeMany(userId)
-    await DbCardModel.purgeMany(userId)
+    await DbItemModel.purgeMany(userId)
+    await DbQuizModel.deleteMany({ userId })
     await DbUserModel.deleteOne({ userId })
   }
 }
@@ -48,56 +64,44 @@ export const DbUserModel = getModelForClass(DbUser, {
   schemaOptions: { collection: 'user', timestamps: true },
 })
 
-@index({ userId: 1, type: 1, item: 1, direction: 1 }, { unique: true })
-export class DbCard {
+/**
+ * User specific
+ */
+
+export const sQuizStat = S.shape({
+  streak: S.shape({
+    right: S.integer().minimum(0),
+    wrong: S.integer().minimum(0),
+    maxRight: S.integer().minimum(0),
+    maxWrong: S.integer().minimum(0),
+  }),
+  lastRight: S.anyOf(
+    S.object().custom((o) => o instanceof Date),
+    S.string().format('date-time')
+  ).optional(),
+  lastWrong: S.anyOf(
+    S.object().custom((o) => o instanceof Date),
+    S.string().format('date-time')
+  ).optional(),
+}).partial()
+
+@index({ userId: 1, templateId: 1, item: 1, direction: 1 }, { unique: true })
+export class DbQuiz {
   @prop({ default: () => nanoid() }) _id!: string
-  @prop({ required: true, index: true }) userId!: string
-  @prop({ required: true }) type!: string
+  @prop({ required: true }) userId!: string
+  @prop({ required: true }) templateId!: string
   @prop({ required: true }) item!: string
   @prop({ required: true }) direction!: string
-  @prop({ default: '' }) front?: string
-  @prop({ default: '' }) back?: string
-  @prop({ default: '' }) mnemonic?: string
-  @prop({ default: () => [] }) tag?: string[]
-
-  static async purgeMany(userId: string, cond?: any) {
-    cond = cond
-      ? {
-          $and: [cond, { userId }],
-        }
-      : { userId }
-
-    await DbQuizModel.deleteMany({
-      cardId: {
-        $in: (await DbCardModel.find(cond).select({ _id: 1 })).map(
-          (el) => el._id
-        ),
-      },
-    })
-
-    await DbCardModel.deleteMany(cond)
-  }
-}
-
-export const DbCardModel = getModelForClass(DbCard, {
-  schemaOptions: { collection: 'card', timestamps: true },
-})
-
-class DbQuiz {
-  @prop({ default: () => repeatReview() }) nextReview?: Date
-  @prop({ default: 0 }) srsLevel?: number
-  @prop({ default: () => ({}) }) stat?: {
-    streak?: {
-      right?: number
-      wrong?: number
-      maxRight?: number
-      maxWrong?: number
-    }
-    lastRight?: Date
-    lastWrong?: Date
-  }
-
-  @prop({ required: true }) cardId!: string
+  @prop() front?: string
+  @prop() back?: string
+  @prop() mnemonic?: string
+  @prop() tag?: string[]
+  @prop() nextReview?: Date
+  @prop() srsLevel?: number
+  @prop({
+    validate: (s) => typeof s === 'undefined' || !!sQuizStat.validate(s)[1],
+  })
+  stat?: typeof sQuizStat.type
 
   markRight() {
     return this._updateSrsLevel(+1)()
@@ -180,13 +184,20 @@ export const DbQuizModel = getModelForClass(DbQuiz, {
   schemaOptions: { collection: 'quiz', timestamps: true },
 })
 
-@index({ userId: 1, chinese: 1 }, { unique: true })
-class DbExtra {
+/**
+ * Sharable
+ */
+
+@index({ name: 1, direction: 1 }, { unique: true })
+export class DbTemplate {
   @prop({ default: () => nanoid() }) _id!: string
-  @prop({ required: true, index: true }) userId!: string
-  @prop({ required: true }) chinese!: string
-  @prop() pinyin?: string
-  @prop({ required: true }) english!: string
+  @prop({ required: true, validate: (u: string[]) => u.length > 0 })
+  userId!: string[]
+
+  @prop({ required: true, unique: true }) name!: string
+  @prop({ required: true }) direction!: string
+  @prop({ required: true }) front!: string
+  @prop() back?: string
 
   static async purgeMany(userId: string, cond?: any) {
     cond = cond
@@ -195,22 +206,64 @@ class DbExtra {
         }
       : { userId }
 
-    const rs = await DbExtraModel.find(cond).select({
-      chinese: 1,
-    })
+    if (!cond) {
+      await DbItemModel.updateMany(
+        {},
+        {
+          $pull: { userId },
+        }
+      )
 
-    if (rs.length > 0) {
-      await DbCardModel.deleteMany({
-        item: { $in: rs.map((el) => el.chinese!) },
-        type: 'extra',
-        userId,
-      })
-
-      await Promise.all(rs.map((el) => el.remove()))
+      await DbItemModel.deleteMany({ userId: { $size: 0 } })
     }
   }
 }
 
-export const DbExtraModel = getModelForClass(DbExtra, {
-  schemaOptions: { collection: 'extra', timestamps: true },
+export const DbTemplateModel = getModelForClass(DbTemplate, {
+  schemaOptions: { collection: 'template', timestamps: true },
+})
+
+class DbItem {
+  @prop({ default: () => nanoid() }) _id!: string
+  @prop({ required: true }) userId!: string[]
+  @prop({ required: true }) templateId!: string
+  @prop({ required: true }) entry!: string
+  @prop() alt?: string[]
+  @prop() reading?: string[]
+  @prop() translation?: string[]
+
+  static async purgeMany(userId: string, cond?: any) {
+    cond = cond
+      ? {
+          $and: [cond, { userId }],
+        }
+      : { userId }
+
+    const rs = await DbItemModel.find(cond).select({
+      entry: 1,
+    })
+
+    if (rs.length > 0) {
+      await DbQuizModel.deleteMany({
+        item: { $in: rs.map((el) => el.entry) },
+        type: 'user',
+        userId,
+      })
+    }
+
+    if (!cond) {
+      await DbItemModel.updateMany(
+        {},
+        {
+          $pull: { userId },
+        }
+      )
+
+      await DbItemModel.deleteMany({ userId: { $size: 0 } })
+    }
+  }
+}
+
+export const DbItemModel = getModelForClass(DbItem, {
+  schemaOptions: { collection: 'item', timestamps: true },
 })
