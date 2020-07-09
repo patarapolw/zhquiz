@@ -85,13 +85,12 @@ export const sQuizStat = S.shape({
   ).optional(),
 }).partial()
 
-@index({ userId: 1, templateId: 1, item: 1, direction: 1 }, { unique: true })
+@index({ userId: 1, templateId: 1, entry: 1, direction: 1 }, { unique: true })
 export class DbQuiz {
   @prop({ default: () => nanoid() }) _id!: string
   @prop({ required: true }) userId!: string
   @prop({ required: true }) templateId!: string
-  @prop({ required: true }) item!: string
-  @prop({ required: true }) direction!: string
+  @prop({ required: true }) entry!: string
   @prop() front?: string
   @prop() back?: string
   @prop() mnemonic?: string
@@ -188,14 +187,29 @@ export const DbQuizModel = getModelForClass(DbQuiz, {
  * Sharable
  */
 
-@index({ name: 1, direction: 1 }, { unique: true })
-export class DbTemplate {
+@index({ name: 1, language: 1, type: 1 }, { unique: true })
+export class DbCategory {
   @prop({ default: () => nanoid() }) _id!: string
   @prop({ required: true, validate: (u: string[]) => u.length > 0 })
   userId!: string[]
 
-  @prop({ required: true, unique: true }) name!: string
+  @prop({ required: true }) name!: string
+  @prop({ required: true }) language!: string
+  @prop({ required: true }) type!: string
+
+  @prop() parent?: string
+}
+
+export const DbCategoryModel = getModelForClass(DbCategory, {
+  schemaOptions: { collection: 'category', timestamps: true },
+})
+
+@index({ categoryId: 1, direction: 1 }, { unique: true })
+export class DbTemplate {
+  @prop({ default: () => nanoid() }) _id!: string
+  @prop({ required: true }) categoryId!: string
   @prop({ required: true }) direction!: string
+
   @prop({ required: true }) front!: string
   @prop() back?: string
 
@@ -223,10 +237,10 @@ export const DbTemplateModel = getModelForClass(DbTemplate, {
   schemaOptions: { collection: 'template', timestamps: true },
 })
 
+@index({ categoryId: 1, entry: 1 }, { unique: true })
 class DbItem {
   @prop({ default: () => nanoid() }) _id!: string
-  @prop({ required: true }) userId!: string[]
-  @prop({ required: true }) templateId!: string
+  @prop({ required: true }) categoryId!: string
   @prop({ required: true }) entry!: string
   @prop() alt?: string[]
   @prop() reading?: string[]
@@ -245,7 +259,7 @@ class DbItem {
 
     if (rs.length > 0) {
       await DbQuizModel.deleteMany({
-        item: { $in: rs.map((el) => el.entry) },
+        entry: { $in: rs.map((el) => el.entry) },
         type: 'user',
         userId,
       })
