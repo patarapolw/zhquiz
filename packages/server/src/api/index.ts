@@ -7,13 +7,11 @@ import admin from 'firebase-admin'
 import { DbUserModel } from '../db/mongo'
 
 import cardRouter from './card'
+import chineseRouter from './chinese'
 import extraRouter from './extra'
-import hanziRouter from './hanzi'
-import libRouter from './lib'
 import quizRouter from './quiz'
-import sentenceRouter from './sentence'
+import tokenRouter from './token'
 import userRouter from './user'
-import vocabRouter from './vocab'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   admin.initializeApp({
@@ -47,7 +45,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   f.register(fCoookie)
   f.register(fSession, { secret: process.env.SECRET! })
 
-  f.addHook('preHandler', async (req, reply) => {
+  f.addHook('preHandler', async (req) => {
     if (req.req.url && req.req.url.startsWith('/api/doc')) {
       return
     }
@@ -55,7 +53,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const m = /^Bearer (.+)$/.exec(req.headers.authorization || '')
 
     if (!m) {
-      reply.status(401).send()
       return
     }
 
@@ -67,10 +64,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     }
   })
 
-  f.register(libRouter, { prefix: '/lib' })
-  f.register(sentenceRouter, { prefix: '/sentence' })
-  f.register(vocabRouter, { prefix: '/vocab' })
-  f.register(hanziRouter, { prefix: '/hanzi' })
+  f.register(chineseRouter, { prefix: '/chinese' })
+  f.register(tokenRouter, { prefix: '/token' })
   f.register(cardRouter, { prefix: '/card' })
   f.register(userRouter, { prefix: '/user' })
   f.register(quizRouter, { prefix: '/quiz' })

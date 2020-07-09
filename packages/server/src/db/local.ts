@@ -1,66 +1,58 @@
-import fs from 'fs'
-
-import yaml from 'js-yaml'
+import S from 'jsonschema-definer'
 import Loki, { Collection } from 'lokijs'
 import XRegExp from 'xregexp'
-import * as z from 'zod'
-
-export const hsk = yaml.safeLoad(
-  fs.readFileSync('assets/hsk.yaml', 'utf8')
-) as Record<string, string[]>
-
-export let zh: Loki
-
-export const zSentence = z.object({
-  chinese: z.string(),
-  pinyin: z.string().optional(),
-  english: z.string().optional(),
-  frequency: z.number().optional(),
-  level: z.number().optional(),
-  type: z.string().optional(),
-})
-
-export let zhSentence: Collection<z.infer<typeof zSentence>>
-
-const zDistinctString = z
-  .string()
-  .refine((s) => s && new Set(s).size === s.length)
 
 const reHan1 = XRegExp('^\\p{Han}$')
 
-export const zToken = z.object({
-  entry: z.string().refine((s) => reHan1.test(s)),
-  sub: zDistinctString.optional(),
-  sup: zDistinctString.optional(),
-  variants: zDistinctString.optional(),
-  frequency: z.number().optional(),
-  level: z.number().optional(),
-  tag: z.array(z.string()).optional(),
-  pinyin: z.string().optional(),
-  english: z.string().optional(),
+export let zh: Loki
+
+const sDistinctString = S.string()
+  .minLength(1)
+  .custom((s) => new Set(s).size === s.length)
+
+const sDistinctStringArray = S.list(S.string())
+  .minItems(1)
+  .custom((arr) => new Set(arr).size === arr.length)
+  .custom((arr) => (arr as string[]).sort().every((s, i) => s === arr[i]))
+
+const sDictionaryExportShape = {
+  entry: S.string(),
+  alt: sDistinctStringArray.optional(),
+  reading: sDistinctStringArray.optional(),
+  translation: sDistinctStringArray,
+}
+
+export const sDictionaryExport = S.shape(sDictionaryExportShape).partial()
+
+export const sDictionary = S.shape({
+  ...sDictionaryExportShape,
+  tag: sDistinctStringArray.optional(),
+  frequency: S.number().optional(),
+  level: S.integer().maximum(60).minimum(1).optional(),
+  priority: S.number().optional(),
+  type: S.string().enum('hanzi', 'vocab', 'sentence'),
+}).additionalProperties(false)
+
+export let zhDictionary: Collection<typeof sDictionary['type']>
+
+export const sToken = S.shape({
+  entry: S.string().custom((s) => reHan1.test(s)),
+  sub: sDistinctString.optional(),
+  sup: sDistinctString.optional(),
+  variants: sDistinctString.optional(),
 })
 
-export let zhToken: Collection<z.infer<typeof zToken>>
-
-export const zVocab = z.object({
-  simplified: z.string(),
-  traditional: z.string().optional(),
-  pinyin: z.string().optional(),
-  english: z.string(),
-  frequency: z.number().optional(),
-})
-
-export let zhVocab: Collection<z.infer<typeof zVocab>>
+export let zhToken: Collection<typeof sToken['type']>
 
 export async function zhInit(filename = 'assets/zh.loki') {
   return new Promise((resolve) => {
     zh = new Loki(filename, {
       autoload: true,
       autoloadCallback: async () => {
-        zhSentence = zh.getCollection('sentence')
-        if (!zhSentence) {
-          zhSentence = zh.addCollection('sentence', {
-            unique: [],
+        zhDictionary = zh.getCollection('dictionary')
+        if (!zhDictionary) {
+          zhDictionary = zh.addCollection('dictionary', {
+            unique: [], // [['entry', 'type']]
           })
         }
 
@@ -68,13 +60,6 @@ export async function zhInit(filename = 'assets/zh.loki') {
         if (!zhToken) {
           zhToken = zh.addCollection('token', {
             unique: ['entry'],
-          })
-        }
-
-        zhVocab = zh.getCollection('vocab')
-        if (!zhVocab) {
-          zhVocab = zh.addCollection('vocab', {
-            unique: [],
           })
         }
 

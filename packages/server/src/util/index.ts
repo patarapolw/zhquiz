@@ -19,7 +19,7 @@ export function reduceToObj<K extends string, V>(arr: [K, V][]): Record<K, V> {
 }
 
 export function pickObj<K extends string, V>(
-  obj: Record<K, V>,
+  obj: Partial<Record<K, V>>,
   pick: K[]
 ): Partial<Record<K, V>> {
   return Object.entries(obj).reduce((prev, [k, v]) => {
