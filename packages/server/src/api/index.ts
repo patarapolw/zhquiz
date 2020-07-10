@@ -4,7 +4,7 @@ import swagger from 'fastify-oas'
 import fSession from 'fastify-session'
 import admin from 'firebase-admin'
 
-import { DbUserModel } from '../db/mongo'
+import { DbUserModel } from '@/db/mongo'
 
 import chineseRouter from './chinese'
 import itemRouter from './item'

@@ -1,11 +1,9 @@
 import escapeRegExp from 'escape-string-regexp'
 import S, { BaseSchema } from 'jsonschema-definer'
 
-import { srsMap } from '../db/quiz'
+import { srsMap } from '@/db/quiz'
 
-export const sStringNonEmpty = S.string()
-  .minLength(1)
-  .custom((s: string) => !!s.trim())
+export const sStringNonEmpty = S.string().minLength(1).pattern(/\S/)
 export const sListStringNonEmpty = S.list(S.string()).minItems(1)
 export const sDateTime = S.anyOf(
   S.object().custom((o) => o instanceof Date),
@@ -21,8 +19,13 @@ export const sJoinedComma = (ks: string[]) =>
   S.string().pattern(
     new RegExp(`(^|,)(${ks.map((k) => escapeRegExp(k)).join('|')})($|,)`)
   )
+export const sSelectDeepJoinedComma = (ks: string[]) =>
+  S.string().pattern(
+    new RegExp(
+      `(^|,)(${ks.map((k) => `${escapeRegExp(k)}(\\.[^,]+)?`).join('|')})($|,)`
+    )
+  )
 export const sDictionaryType = S.string().enum('hanzi', 'vocab', 'sentence')
-export const sCardType = S.string().enum('hanzi', 'vocab', 'sentence', 'extra')
 export const sSort = (ks: string[]) =>
   S.array()
     .items(ks.map((k) => S.array().items([S.enum(k), S.integer().enum(-1, 1)])))

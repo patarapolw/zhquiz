@@ -3,20 +3,12 @@ import path from 'path'
 import fastify from 'fastify'
 import helmet from 'fastify-helmet'
 import fStatic from 'fastify-static'
-import mongoose from 'mongoose'
 
-import { zhInit } from './db/local'
+import { mongoInit } from './util/mongo'
 import apiRouter from './api'
 
 async function main() {
-  await mongoose.connect(process.env.MONGO_URI!, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    useCreateIndex: true,
-    useFindAndModify: false,
-  })
-
-  await zhInit()
+  await mongoInit()
 
   const app = fastify({
     logger:

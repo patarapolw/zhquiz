@@ -1,10 +1,14 @@
-import { FastifyInstance } from 'fastify'
+import {
+  DefaultHeaders,
+  DefaultParams,
+  DefaultQuery,
+  FastifyInstance,
+} from 'fastify'
 import S from 'jsonschema-definer'
 
+import { DbUserModel } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
-import { ensureSchema, sStringNonEmpty } from '@/util/schema'
-
-import { DbUserModel } from '../db/mongo'
+import { sJoinedComma, sSelectDeepJoinedComma } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['user']
@@ -17,7 +21,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function userGetConfig() {
     const sQuery = S.shape({
-      select: sStringNonEmpty,
+      select:
+        process.env.NODE_ENV === 'development'
+          ? sSelectDeepJoinedComma(['levelMin', 'level', 'settings'])
+          : sJoinedComma([
+              'levelMin',
+              'level',
+              'settings.level.whatToShow',
+              'settings.quiz',
+            ]),
     })
 
     f.post<typeof sQuery.type>(
@@ -49,10 +61,21 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function userUpdate() {
     const sBody = S.shape({
-      set: S.object(),
+      set:
+        process.env.NODE_ENV === 'development'
+          ? S.object().additionalProperties(
+              S.anyOf(S.string(), S.boolean(), S.list(S.string()))
+            )
+          : S.shape({
+              'settings.level.whatToShow': S.string().optional(),
+              'settings.quiz.type': S.list(S.string()).optional(),
+              'settings.quiz.stage': S.list(S.string()).optional(),
+              'settings.quiz.direction': S.list(S.string()).optional(),
+              'settings.quiz.isDue': S.boolean().optional(),
+            }),
     })
 
-    f.patch(
+    f.patch<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
       '/',
       {
         schema: {
@@ -67,7 +90,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { set } = ensureSchema(sBody, req.body)
+        const { set } = req.body
 
         await DbUserModel.findByIdAndUpdate(userId, {
           $set: set,

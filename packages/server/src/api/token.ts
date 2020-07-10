@@ -1,9 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { ensureSchema, sStringNonEmpty } from '@/util/schema'
-
-import { zhToken } from '../db/local'
+import { DbTokenModel, sToken, sTokenArray } from '@/db/mongo'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['token']
@@ -14,13 +12,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function tokenRadical() {
     const sQuery = S.shape({
-      q: sStringNonEmpty,
+      q: sToken,
     })
 
     const sResponse = S.shape({
-      sub: S.string().optional(),
-      sup: S.string().optional(),
-      variants: S.string().optional(),
+      sub: sTokenArray.optional(),
+      sup: sTokenArray.optional(),
+      variants: sTokenArray.optional(),
     })
 
     f.get<typeof sQuery.type>(
@@ -36,8 +34,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req) => {
-        const { q } = ensureSchema(sQuery, req.query)
-        const r = zhToken.findOne({ entry: q })
+        const { q } = req.query
+        const r = await DbTokenModel.findById(q)
 
         return {
           sub: r?.sub,

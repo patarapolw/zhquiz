@@ -1,13 +1,18 @@
 import dotProp from 'dot-prop-immutable'
-import { FastifyInstance } from 'fastify'
+import {
+  DefaultHeaders,
+  DefaultParams,
+  DefaultQuery,
+  FastifyInstance,
+} from 'fastify'
 import S from 'jsonschema-definer'
 
-import { DbQuizModel, DbTemplateModel } from '@/db/mongo'
+import { DbCategoryModel, DbQuizModel } from '@/db/mongo'
 import { reduceToObj, restoreDate } from '@/util'
 import { checkAuthorize } from '@/util/api'
+import { safeString } from '@/util/mongo'
 import {
-  ensureSchema,
-  sCardType,
+  sDictionaryType,
   sId,
   sIdJoinedComma,
   sJoinedComma,
@@ -76,7 +81,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function quizGetIds() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
-      type: sCardType,
+      type: sDictionaryType.optional(),
+      lang: sJoinedComma(['chinese']).optional(),
     })
 
     const sResponse = S.shape({
@@ -101,35 +107,51 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { q, type } = ensureSchema(sQuery, req.query)
+        const { q, type, lang = 'chinese' } = req.query
+
+        const [langFrom, langTo = 'english'] = lang.split(',')
 
         const rs = await DbQuizModel.aggregate([
           {
             $match: {
               userId,
-              item: q,
-              type,
+              entry: q,
             },
           },
           {
             $lookup: {
-              from: 'quiz',
-              localField: '_id',
-              foreignField: 'cardId',
-              as: 'q',
+              from: 'template',
+              localField: 'templateId',
+              foreignField: '_id',
+              as: 't',
             },
           },
-          { $unwind: { path: '$q', preserveNullAndEmptyArrays: true } },
+          { $unwind: '$t' },
           {
-            $project: {
-              _id: 0,
-              quizId: '$q._id',
+            $lookup: {
+              from: 'category',
+              let: {
+                categoryId: '$t.categoryId',
+              },
+              pipeline: [
+                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
+                {
+                  $match: {
+                    langFrom: safeString(langFrom),
+                    langTo: safeString(langTo),
+                    type: safeString(type),
+                  },
+                },
+              ],
+              as: 'c',
             },
           },
+          { $match: { c: { $size: { $gt: 0 } } } },
+          { $group: { _id: 1 } },
         ])
 
         return {
-          result: rs.map((r) => r.quizId),
+          result: rs.map((r) => r._id),
         }
       }
     )
@@ -150,7 +172,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        const { id } = ensureSchema(sQuery, req.query)
+        const { id } = req.query
 
         const quiz = await DbQuizModel.findOne({ _id: id })
         if (!quiz) {
@@ -181,7 +203,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        const { id } = ensureSchema(sQuery, req.query)
+        const { id } = req.query
 
         const quiz = await DbQuizModel.findOne({ _id: id })
         if (!quiz) {
@@ -212,7 +234,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        const { id } = ensureSchema(sQuery, req.query)
+        const { id } = req.query
 
         const quiz = await DbQuizModel.findOne({ _id: id })
         if (!quiz) {
@@ -246,7 +268,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       count: S.integer().minimum(0).optional(),
     })
 
-    f.post(
+    f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
       '/q',
       {
         schema: {
@@ -271,7 +293,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           offset = 0,
           limit = 10,
           hasCount = true,
-        } = ensureSchema(sBody, req.body)
+        } = req.body
 
         const r = await DbQuizModel.aggregate([
           { $match: { userId } },
@@ -294,12 +316,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         ])
 
-        return ensureSchema(sResponse, {
+        return {
           result: r[0]?.result || [],
           count: hasCount
             ? dotProp.get(r[0] || {}, 'count.0.count') || 0
             : undefined,
-        })
+        }
       }
     )
   }
@@ -307,7 +329,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function quizCreate() {
     const sQuery = S.shape({
       entry: sStringNonEmpty,
-      template: sStringNonEmpty,
+      type: sDictionaryType.optional(),
+      lang: sJoinedComma(['chinese']).optional(),
     })
 
     f.put<typeof sQuery.type>(
@@ -325,12 +348,35 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { entry, template } = req.query
+        const { entry, type, lang = 'chinese' } = req.query
+        const [langFrom, langTo = 'english'] = lang.split(',')
 
         const templateIds = (
-          await DbTemplateModel.find({ name: template }).select({
-            _id: 1,
-          })
+          await DbCategoryModel.aggregate([
+            {
+              $match: {
+                userId: { $in: [userId, 'shared', 'default'] },
+                type: safeString(type),
+                langFrom: safeString(langFrom),
+                langTo: safeString(langTo),
+              },
+            },
+            { $sort: { priority: -1 } },
+            {
+              $lookup: {
+                from: 'template',
+                localField: '_id',
+                foreignField: 'categoryId',
+                as: 't',
+              },
+            },
+            { $unwind: '$t' },
+            {
+              $project: {
+                _id: '$t._id',
+              },
+            },
+          ])
         ).map((t) => t._id)
 
         await DbQuizModel.insertMany([
@@ -360,7 +406,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       }),
     })
 
-    f.patch<typeof sQuery.type>(
+    f.patch<
+      typeof sQuery.type,
+      DefaultParams,
+      DefaultHeaders,
+      typeof sBody.type
+    >(
       '/',
       {
         schema: {
@@ -372,7 +423,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
       async (req, reply) => {
         const { id } = req.query
-        const { set } = ensureSchema(sBody, req.body)
+        const { set } = req.body
 
         await DbQuizModel.findByIdAndUpdate(id, {
           $set: set,

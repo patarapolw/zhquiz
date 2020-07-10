@@ -1,18 +1,15 @@
-import fs from 'fs'
-
 import makePinyin from 'chinese-to-pinyin'
 import dotProp from 'dot-prop-immutable'
-import { FastifyInstance } from 'fastify'
+import { DefaultHeaders, DefaultParams, FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { zhDictionary } from '@/db/local'
-import { DbItemModel } from '@/db/mongo'
+import { DbCategoryModel, DbItemModel } from '@/db/mongo'
 import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
+import { safeString } from '@/util/mongo'
 import {
-  ensureSchema,
-  sCardType,
   sDateTime,
+  sDictionaryType,
   sIdJoinedComma,
   sJoinedComma,
   sListStringNonEmpty,
@@ -45,15 +42,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     'translation.0',
     'updatedAt',
   ])
-
-  const template = JSON.parse(
-    fs.readFileSync('assets/mongo/template.json', 'utf8')
-  ) as {
-    templateId: string
-    categoryId: string
-    type: string
-    direction: string
-  }[]
 
   extraAll()
   extraMatch()
@@ -97,7 +85,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           page: pagination = '',
           select = mySelectJoinedCommaDefault,
           sort = '-updatedAt',
-        } = ensureSchema(sQuery, req.query)
+        } = req.query
 
         let hasCount = false
         let page = 1
@@ -153,7 +141,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function extraMatch() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
-      select: mySortJoinedComma.optional(),
+      select: mySelectJoinedComma.optional(),
     })
 
     const sResponse = sItem.partial()
@@ -176,10 +164,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { q, select = mySelectJoinedCommaDefault } = ensureSchema(
-          sQuery,
-          req.query
-        )
+        const { q, select = mySelectJoinedCommaDefault } = req.query
         const r =
           (
             await DbItemModel.aggregate([
@@ -201,16 +186,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function extraCreate() {
     const sQuery = S.shape({
-      lang: S.string().optional(),
+      lang: sJoinedComma(['chinese']).optional(),
     })
 
     const sBody = sItem
 
     const sResponse = S.shape({
-      type: sCardType,
+      type: sDictionaryType.optional(),
     })
 
-    f.put<typeof sQuery.type>(
+    f.put<typeof sQuery.type, DefaultParams, DefaultHeaders, typeof sBody.type>(
       '/',
       {
         schema: {
@@ -228,55 +213,112 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { lang } = req.query
+        const { lang = 'chinese' } = req.query
+        const [langFrom, langTo = 'english'] = lang.split(',')
 
-        const { entry, reading, translation = [] } = ensureSchema(
-          sBody,
-          req.body
-        )
+        const { entry, reading, translation = [] } = req.body
 
-        const existingTypes = zhDictionary
-          .find({
-            $or: [{ entry }, { alt: { $containsString: entry } }],
-          })
-          .reduce(
-            (prev, { type }) => ({ ...prev, [type]: (prev[type] || 0) + 1 }),
-            {} as Record<string, number>
-          )
+        const existing = await DbItemModel.aggregate([
+          {
+            $match: {
+              $or: [{ entry }, { alt: entry }],
+            },
+          },
+          {
+            $lookup: {
+              from: 'category',
+              let: {
+                categoryId: '$categoryId',
+              },
+              pipeline: [
+                {
+                  $match: {
+                    userId: {
+                      $in: [userId, 'shared', 'default'],
+                    },
+                    langFrom: safeString(langFrom),
+                    langTo: safeString(langTo),
+                  },
+                },
+                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
+              ],
+              as: 'c',
+            },
+          },
+          { $unwind: '$c' },
+          { $unwind: { path: '$c.type', preserveNullAndEmptyArrays: true } },
+          {
+            group: {
+              _id: 'entry',
+              type: { $push: '$c.type' },
+            },
+          },
+          { $limit: 1 },
+        ])
 
-        if (existingTypes.vocab) {
+        if (existing[0]) {
           return {
-            type: 'vocab',
+            type: dotProp.get(existing[0], 'type.0'),
           }
         }
 
-        if (existingTypes.sentence) {
-          return {
-            type: 'sentence',
-          }
-        }
+        const template = await DbCategoryModel.aggregate([
+          {
+            $match: {
+              userId: {
+                $in: [userId, 'shared', 'default'],
+              },
+              type: { $exists: false },
+              langFrom: safeString(langFrom),
+              langTo: safeString(langTo),
+            },
+          },
+          {
+            $sort: {
+              priority: -1,
+            },
+          },
+          { $limit: 1 },
+          {
+            $lookup: {
+              from: 'template',
+              localField: '_id',
+              foreignField: 'categoryId',
+              as: 't',
+            },
+          },
+          { $unwind: '$t' },
+          {
+            $project: {
+              _id: 0,
+              categoryId: '$_id',
+              templateId: '$t._id',
+            },
+          },
+        ])
 
-        if (existingTypes.hanzi) {
-          return {
-            type: 'hanzi',
-          }
+        if (!template.length) {
+          reply
+            .status(500)
+            .send(
+              'Cannot create item due to lack of templating for quiz. Please contact the admin.'
+            )
+          return
         }
 
         await DbItemModel.create({
-          categoryId: template.filter((t) => t.type === 'extra')[0].categoryId,
+          categoryId: template[0].categoryId,
           entry,
           reading:
             reading && reading[0]
               ? reading
-              : lang === 'chinese'
+              : langFrom === 'chinese'
               ? [makePinyin(entry, { keepRest: true })]
               : undefined,
           translation,
         })
 
-        return {
-          type: 'extra',
-        }
+        return {}
       }
     )
   }
@@ -290,7 +332,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       set: sItem.partial(),
     })
 
-    f.patch<typeof sQuery.type>(
+    f.patch<
+      typeof sQuery.type,
+      DefaultParams,
+      DefaultHeaders,
+      typeof sBody.type
+    >(
       '/',
       {
         schema: {
@@ -300,8 +347,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        const { id } = ensureSchema(sQuery, req.query)
-        const { set } = ensureSchema(sBody, req.body)
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { id } = req.query
+        const { set } = req.body
 
         await DbItemModel.updateMany(
           { _id: { $in: id.split(',') } },
@@ -326,13 +378,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         schema: {
           tags,
           summary: 'Delete user-created items',
-          querystring: {
-            type: 'object',
-            required: ['id'],
-            properties: {
-              id: { type: 'string', minLength: 1 },
-            },
-          },
+          querystring: sQuery.valueOf(),
         },
       },
       async (req, reply) => {
@@ -341,7 +387,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { id } = ensureSchema(sQuery, req.query)
+        const { id } = req.query
 
         await DbItemModel.deleteMany({ _id: { $in: id.split(',') } })
         reply.status(201).send()
@@ -365,7 +411,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     { $eq: ['$_id', '$$templateId'] },
                     {
                       userId,
-                      language: 'chinese',
+                      langFrom: 'chinese',
+                      langTo: 'english',
                       type: { $exists: false },
                     },
                   ],

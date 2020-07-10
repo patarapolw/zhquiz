@@ -8,7 +8,9 @@ import {
 import dotProp from 'dot-prop-immutable'
 import S from 'jsonschema-definer'
 import { nanoid } from 'nanoid'
+import XRegExp from 'xregexp'
 
+import { safeString } from '@/util/mongo'
 import { sDateTime } from '@/util/schema'
 
 import { getNextReview, repeatReview, srsMap } from './quiz'
@@ -31,14 +33,16 @@ export class DbUser {
   @prop({ required: true, unique: true }) email!: string
   @prop() name!: string
   @prop({ default: 1 }) levelMin?: number
-  @prop({ default: 60 }) level?: number
+  @prop({ default: 60 }) levelMax?: number
+  @prop({ default: 'chinese' }) langFrom?: string
+  @prop({ default: 'english' }) langTo?: string
   @prop({
     validate: (s) => typeof s === 'undefined' || !!sUserSettings.validate(s)[1],
   })
   settings?: typeof sUserSettings.type
 
   static async signIn(email: string, name: string) {
-    let user = await DbUserModel.findOne({ email })
+    let user = await DbUserModel.findOne({ email: safeString(email) })
     if (!user) {
       user = await DbUserModel.create({ email, name })
     }
@@ -188,11 +192,13 @@ export class DbCategory {
   @prop({ required: true, validate: (u: string[]) => u.length > 0 })
   userId!: string[]
 
-  @prop() name?: string
-  @prop({ required: true }) language!: string
+  @prop({ required: true }) name!: string
+  @prop({ required: true }) langFrom!: string
+  @prop({ required: true }) langTo!: string
   @prop() type?: string
+  @prop() priority?: number
 
-  @prop() parent?: string
+  @prop() tag?: string[]
 
   static async purgeMany(userId: string, cond?: any) {
     cond = cond
@@ -283,18 +289,65 @@ export const DbTemplateModel = getModelForClass(DbTemplate, {
   schemaOptions: { collection: 'template', timestamps: true },
 })
 
+export const sDbItem = S.shape({
+  categoryId: S.string(),
+  entry: S.string(),
+  alt: S.list(S.string()).optional(),
+  reading: S.list(S.string()).optional(),
+  translation: S.list(S.string()).optional(),
+  level: S.integer().minimum(1).maximum(60).optional(),
+  tag: S.list(S.string()).optional(),
+  priority: S.number().optional(),
+  frequency: S.number().optional(),
+})
+
+type IDbItem = typeof sDbItem.type
+
 @index({ categoryId: 1, entry: 1 }, { unique: true })
-class DbItem {
-  @prop({ default: () => nanoid() }) _id!: string
+class DbItem implements IDbItem {
+  @prop({ default: () => nanoid() }) _id?: string
   @prop({ required: true }) categoryId!: string
-  @prop({ required: true }) entry!: string
-  @prop() alt?: string[]
+  @prop({ required: true, text: true }) entry!: string
+  @prop({ text: true }) alt?: string[]
   @prop() reading?: string[]
   @prop() translation?: string[]
   @prop() level?: number
   @prop() tag?: string[]
+  @prop() priority?: number
+  @prop() frequency?: number
 }
 
 export const DbItemModel = getModelForClass(DbItem, {
   schemaOptions: { collection: 'item', timestamps: true },
+})
+
+/**
+ * Immutable
+ */
+
+export const sToken = S.string().pattern(XRegExp('^\\p{Han}$'))
+export const sTokenArray = S.list(sToken).minItems(1).uniqueItems(true)
+
+export const sDbToken = S.shape({
+  _id: sToken,
+  sub: sTokenArray.optional(),
+  sup: sTokenArray.optional(),
+  variants: sTokenArray.optional(),
+})
+
+type IDbToken = typeof sDbToken.type
+
+class DbToken implements IDbToken {
+  @prop() _id!: typeof sToken.type
+  @prop() sub?: typeof sTokenArray.type
+  @prop() sup?: typeof sTokenArray.type
+  @prop() variants?: typeof sTokenArray.type
+
+  get entry() {
+    return this._id
+  }
+}
+
+export const DbTokenModel = getModelForClass(DbToken, {
+  schemaOptions: { collection: 'token' },
 })
