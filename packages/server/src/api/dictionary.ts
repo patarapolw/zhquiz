@@ -9,6 +9,7 @@ import { safeString } from '@/util/mongo'
 import {
   sJoinedComma,
   sPageFalsable,
+  splitComma,
   sSortJoinedComma,
   sSrsLevel,
   sStringNonEmpty,
@@ -26,29 +27,30 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   const myDictionaryType = S.string().enum('hanzi', 'vocab', 'sentence')
   const myDictionaryJoinedComma = sJoinedComma(['hanzi', 'vocab', 'sentence'])
 
-  getSrsLevel()
+  getLevel()
   getMatch()
   doQuery()
   doRandom()
 
   next()
 
-  function getSrsLevel() {
+  function getLevel() {
     const sQuery = S.shape({
-      lang: sJoinedComma(['chinese']),
+      lang: sJoinedComma(['chinese']).optional(),
     })
 
     const sResponse = S.shape({
       result: S.list(
         S.shape({
-          entry: S.string(),
+          entry: S.string().optional(),
+          level: S.integer().minimum(1).maximum(60).optional(),
           srsLevel: sSrsLevel.optional(),
         })
       ),
     })
 
-    f.post<typeof sQuery.type>(
-      '/srsLevel',
+    f.get<typeof sQuery.type>(
+      '/level',
       {
         schema: {
           tags,
@@ -60,14 +62,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<undefined | typeof sResponse.type> => {
+        reply.header('Cache-Control', 'no-cache')
+
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return
         }
 
-        const { lang = 'chinese' } = req.query
-
-        const [langFrom, langTo = 'english'] = lang.split(',')
+        const { lang } = req.query
+        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
 
         const result = await DbCategoryModel.aggregate([
           {
@@ -79,17 +82,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             },
           },
           {
-            $group: {
-              _id: '$priority',
-              categoryIds: { $addToset: '$_id' },
-            },
-          },
-          { $sort: { _id: -1 } },
-          {
             $lookup: {
               from: 'item',
               localField: 'categoryId',
-              foreignField: 'categoryIds',
+              foreignField: '_id',
               as: 'it',
             },
           },
@@ -98,7 +94,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             $lookup: {
               from: 'template',
               localField: 'categoryId',
-              foreignField: 'categoryIds',
+              foreignField: '_id',
               as: 't',
             },
           },
@@ -136,15 +132,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             $group: {
               _id: '$it.entry',
               srsLevel: { $max: '$q.srsLevel' },
+              level: { $max: '$it.level' },
             },
           },
-          {
-            $project: {
-              _id: 0,
-              entry: '$_id',
-              srsLevel: 1,
-            },
-          },
+          { $addFields: { entry: '$_id' } },
+          { $project: { _id: 0 } },
         ])
 
         return {
@@ -184,6 +176,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<undefined | typeof sResponse.type> => {
+        reply.header('Cache-Control', 'no-cache')
+
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return
@@ -193,10 +187,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           q,
           type,
           select = 'entry,alt,reading,translation',
-          lang = 'chinese',
+          lang,
         } = req.query
 
-        const [langFrom, langTo = 'english'] = lang.split(',')
+        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
 
         const r = await DbItemModel.aggregate([
           {
@@ -256,7 +250,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           {
             $project: Object.assign(
               { _id: 0 },
-              reduceToObj(select.split(',').map((k) => [k, 1]))
+              reduceToObj((splitComma(select) || []).map((k) => [k, 1]))
             ),
           },
         ])
@@ -300,6 +294,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<undefined | typeof sResponse.type> => {
+        reply.header('Cache-Control', 'no-cache')
+
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return
@@ -310,21 +306,22 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           type,
           select = 'entry,alt,reading,translation',
           page: pagination = '',
-          lang = 'chinese',
+          lang,
         } = req.query
 
-        let hasCount = false
-        let page = 1
-        let perPage = 10
+        let page: number | null = 1
+        let perPage: number | null = 10
 
         if (pagination !== 'false') {
-          hasCount = true
-          const p = pagination.split(',').map((p) => parseInt(p))
+          const p = (splitComma(pagination) || []).map((p) => parseInt(p))
           page = p[0] || page
           perPage = p[1] || perPage
+        } else {
+          page = null
+          perPage = null
         }
 
-        const [langFrom, langTo = 'english'] = lang.split(',')
+        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
 
         const r = await DbItemModel.aggregate([
           {
@@ -347,7 +344,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     userId: {
                       $in: [userId, 'shared', 'default'],
                     },
-                    type: { $in: type.split(',') },
+                    type: { $in: splitComma(type) || [] },
                     langFrom: safeString(langFrom),
                     langTo: safeString(langTo),
                   },
@@ -387,26 +384,23 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     frequency: -1,
                   },
                 },
-                ...(hasCount
-                  ? [{ $skip: (page - 1) * perPage }, { $limit: perPage }]
-                  : []),
+                ...(page && perPage ? [{ $skip: (page - 1) * perPage }] : []),
+                ...(perPage ? [{ $limit: perPage }] : []),
                 {
                   $project: Object.assign(
                     { _id: 0 },
-                    reduceToObj(select.split(',').map((k) => [k, 1]))
+                    reduceToObj((splitComma(select) || []).map((k) => [k, 1]))
                   ),
                 },
               ],
-              count: hasCount ? [{ $count: 'count' }] : undefined,
+              count: page ? [{ $count: 'count' }] : undefined,
             },
           },
         ])
 
         return {
           result: r[0]?.result || [],
-          count: hasCount
-            ? dotProp.get(r[0] || {}, 'count.0.count', 0)
-            : undefined,
+          count: page ? dotProp.get(r[0] || {}, 'count.0.count', 0) : undefined,
         }
       }
     )
@@ -424,7 +418,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       translation: S.list(S.string()).optional(),
     })
 
-    f.post<typeof sQuery.type>(
+    f.get<typeof sQuery.type>(
       '/random',
       {
         schema: {
@@ -437,19 +431,21 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<undefined | typeof sResponse.type> => {
+        reply.header('Cache-Control', 'no-cache')
+
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return
         }
 
-        const { type, level = '60', lang = 'chinese' } = req.query
+        const { type, level, lang } = req.query
 
-        const lvArr = level.split(',').map((lv) => parseInt(lv))
+        const lvArr = (splitComma(level) || ['60']).map((lv) => parseInt(lv))
         if (lvArr.length === 1) {
           lvArr.unshift(1)
         }
 
-        const [langFrom, langTo = 'english'] = lang.split(',')
+        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
 
         const r = await DbQuizModel.aggregate([
           {

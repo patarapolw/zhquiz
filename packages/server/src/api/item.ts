@@ -14,6 +14,7 @@ import {
   sJoinedComma,
   sListStringNonEmpty,
   sPageFalsable,
+  splitComma,
   sSortJoinedComma,
   sStringNonEmpty,
 } from '@/util/schema'
@@ -28,13 +29,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     updatedAt: sDateTime,
   })
   const mySelectJoinedComma = sJoinedComma([
+    '_id',
     'entry',
     'alt',
     'reading',
     'translation',
-    'updatedAt',
   ])
-  const mySelectJoinedCommaDefault = 'entry,alt,reading,translation,updatedAt'
+  const mySelectJoinedCommaDefault = '_id,entry,alt,reading,translation'
   const mySortJoinedComma = sSortJoinedComma([
     'entry',
     'alt.0',
@@ -43,15 +44,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     'updatedAt',
   ])
 
-  extraAll()
-  extraMatch()
-  extraCreate()
-  extraUpdate()
-  extraDelete()
+  getAll()
+  getMatch()
+  doCreate()
+  doUpdate()
+  doDelete()
 
   next()
 
-  function extraAll() {
+  function getAll() {
     const sQuery = S.shape({
       select: mySelectJoinedComma.optional(),
       page: sPageFalsable.optional(),
@@ -63,7 +64,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       count: S.integer().optional(),
     })
 
-    f.post<typeof sQuery.type>(
+    f.get<typeof sQuery.type>(
       '/all',
       {
         schema: {
@@ -76,6 +77,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<undefined | typeof sResponse.type> => {
+        reply.header('Cache-Control', 'no-cache')
+
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return
@@ -87,15 +90,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           sort = '-updatedAt',
         } = req.query
 
-        let hasCount = false
-        let page = 1
-        let perPage = 10
+        let page: number | null = null
+        let perPage: number | null = 10
 
         if (pagination !== 'false') {
-          hasCount = true
-          const p = pagination.split(',').map((p) => parseInt(p))
+          const p = (splitComma(pagination) || []).map((p) => parseInt(p))
           page = p[0] || page
           perPage = p[1] || perPage
+        } else {
+          page = null
+          perPage = null
         }
 
         const r = await DbItemModel.aggregate([
@@ -104,7 +108,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             $facet: {
               result: [
                 {
-                  $sort: sort.split(',').reduce((prev, k) => {
+                  $sort: (splitComma(sort) || []).reduce((prev, k) => {
                     if (k.startsWith('-')) {
                       prev[k.substr(1)] = -1
                     } else {
@@ -114,31 +118,29 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     return prev
                   }, {} as Record<string, -1 | 1>),
                 },
-                { $skip: (page - 1) * perPage },
-                { $limit: perPage },
+                ...(page && perPage ? [{ $skip: (page - 1) * perPage }] : []),
+                ...(perPage ? [{ $limit: perPage }] : []),
                 {
                   $project: Object.assign(
                     { _id: 0 },
-                    reduceToObj(select.split(',').map((k) => [k, 1]))
+                    reduceToObj((splitComma(select) || []).map((k) => [k, 1]))
                   ),
                 },
               ],
-              count: hasCount ? [{ $count: 'count' }] : undefined,
+              count: page ? [{ $count: 'count' }] : undefined,
             },
           },
         ])
 
         return {
           result: r[0]?.result || [],
-          count: hasCount
-            ? dotProp.get(r[0] || {}, 'count.0.count', 0)
-            : undefined,
+          count: page ? dotProp.get(r[0] || {}, 'count.0.count', 0) : undefined,
         }
       }
     )
   }
 
-  function extraMatch() {
+  function getMatch() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
       select: mySelectJoinedComma.optional(),
@@ -146,7 +148,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
     const sResponse = sItem.partial()
 
-    f.post<typeof sQuery.type>(
+    f.get<typeof sQuery.type>(
       '/match',
       {
         schema: {
@@ -159,6 +161,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
+        reply.header('Cache-Control', 'no-cache')
+
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return
@@ -174,17 +178,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             ])
           )[0] || ({} as any)
 
-        return select
-          .split(',')
-          .reduce(
-            (prev, k) => ({ ...prev, [k]: r[k] }),
-            {} as Record<string, any>
-          )
+        return (splitComma(select) || []).reduce(
+          (prev, k) => ({ ...prev, [k]: r[k] }),
+          {} as Record<string, any>
+        )
       }
     )
   }
 
-  function extraCreate() {
+  function doCreate() {
     const sQuery = S.shape({
       lang: sJoinedComma(['chinese']).optional(),
     })
@@ -213,8 +215,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { lang = 'chinese' } = req.query
-        const [langFrom, langTo = 'english'] = lang.split(',')
+        const { lang } = req.query
+        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
 
         const { entry, reading, translation = [] } = req.body
 
@@ -323,7 +325,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     )
   }
 
-  function extraUpdate() {
+  function doUpdate() {
     const sQuery = S.shape({
       id: sIdJoinedComma,
     })
@@ -356,7 +358,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const { set } = req.body
 
         await DbItemModel.updateMany(
-          { _id: { $in: id.split(',') } },
+          { _id: { $in: splitComma(id) || [] } },
           {
             $set: set,
           }
@@ -367,7 +369,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     )
   }
 
-  function extraDelete() {
+  function doDelete() {
     const sQuery = S.shape({
       id: sIdJoinedComma,
     })
@@ -389,7 +391,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { id } = req.query
 
-        await DbItemModel.deleteMany({ _id: { $in: id.split(',') } })
+        await DbItemModel.deleteMany({ _id: { $in: splitComma(id) || [] } })
         reply.status(201).send()
       }
     )
