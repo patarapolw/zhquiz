@@ -4,6 +4,7 @@ import S from 'jsonschema-definer'
 import jieba from 'nodejieba'
 
 import { sDictionaryExport, zhDictionary } from '@/db/local'
+import { DbQuizModel } from '@/db/mongo'
 import { pickObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import {
@@ -14,8 +15,6 @@ import {
   sStringNonEmpty,
   sStringOneOrPairInteger,
 } from '@/util/schema'
-
-import { DbCardModel } from '../db/mongo'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['chinese']
@@ -33,7 +32,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sResponse = S.shape({
       result: S.list(
         S.shape({
-          item: S.string(),
+          entry: S.string(),
           srsLevel: sSrsLevel.optional(),
         })
       ),
@@ -56,12 +55,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const result = await DbCardModel.aggregate([
+        const result = await DbQuizModel.aggregate([
           {
             $match: {
               userId,
-              type: 'vocab',
-              item: {
+              entry: {
                 $in: zhDictionary
                   .find({
                     type: 'vocab',
@@ -74,18 +72,29 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
           {
             $lookup: {
-              from: 'quiz',
-              localField: '_id',
-              foreignField: 'cardId',
-              as: 'q',
+              from: 'template',
+              localField: 'templateId',
+              foreignField: '_id',
+              as: 't',
             },
           },
-          { $unwind: { path: '$q', preserveNullAndEmptyArrays: true } },
+          {
+            $match: {
+              't.language': 'chinese',
+              't.type': 'vocab',
+            },
+          },
+          {
+            $group: {
+              _id: '$entry',
+              srsLevel: { $max: '$srsLevel' },
+            },
+          },
           {
             $project: {
               _id: 0,
-              item: 1,
-              srsLevel: '$q.srsLevel',
+              entry: '$_id',
+              srsLevel: 1,
             },
           },
         ])
@@ -241,28 +250,31 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const reviewing: string[] = (
-          await DbCardModel.aggregate([
+          await DbQuizModel.aggregate([
             {
               $match: {
                 userId,
-                type,
+                nextReview: { $exists: true },
               },
             },
             {
               $lookup: {
-                from: 'quiz',
-                localField: '_id',
-                foreignField: 'cardId',
-                as: 'q',
+                from: 'template',
+                localField: 'templateId',
+                foreignField: '_id',
+                as: 't',
               },
             },
             {
-              $match: { 'q.nextReview': { $exists: true } },
+              $match: {
+                't.language': 'chinese',
+                't.type': type,
+              },
             },
             {
               $project: {
                 _id: 0,
-                item: 1,
+                entry: 1,
               },
             },
           ])

@@ -1,33 +1,43 @@
+import dotProp from 'dot-prop-immutable'
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
+import { DbQuizModel, DbTemplateModel } from '@/db/mongo'
+import { reduceToObj, restoreDate } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import {
   ensureSchema,
   sCardType,
   sId,
   sIdJoinedComma,
+  sJoinedComma,
+  sListStringNonEmpty,
+  sSort,
   sStringNonEmpty,
 } from '@/util/schema'
-
-import { DbCardModel, DbQuizModel } from '../db/mongo'
-import { reduceToObj } from '../util'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['quiz']
 
-  quizInfo()
+  quizRenderInfo()
   quizGetIds()
   quizRight()
   quizWrong()
   quizRepeat()
+  quizUpdateSet()
+  quizCreate()
+  quizDelete()
+
+  // if (process.env.NODE_ENV === 'development') {
+  quizQuery()
+  // }
 
   next()
 
-  function quizInfo() {
+  function quizRenderInfo() {
     const sQuery = S.shape({
       id: sId,
-      select: sStringNonEmpty,
+      select: sJoinedComma(['front', 'back', 'mnemonic']),
     })
 
     const sResponse = S.shape({
@@ -37,11 +47,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     })
 
     f.post<typeof sQuery.type>(
-      '/',
+      '/render',
       {
         schema: {
           tags,
-          summary: 'Get card info for quiz',
+          summary: 'Get render info for quiz',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -51,7 +61,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       async (req) => {
         const { id, select } = req.query
         const r =
-          (await DbCardModel.findById(id).select(
+          (await DbQuizModel.findById(id).select(
             Object.assign(
               { _id: 0 },
               reduceToObj(select.split(',').map((k) => [k, 1]))
@@ -70,7 +80,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     })
 
     const sResponse = S.shape({
-      result: sIdJoinedComma,
+      result: S.list(sId),
     })
 
     f.post<typeof sQuery.type>(
@@ -85,7 +95,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply) => {
+      async (req, reply): Promise<undefined | typeof sResponse.type> => {
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return
@@ -93,7 +103,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { q, type } = ensureSchema(sQuery, req.query)
 
-        const rs = await DbCardModel.aggregate([
+        const rs = await DbQuizModel.aggregate([
           {
             $match: {
               userId,
@@ -212,6 +222,189 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         quiz.markRepeat()
         await quiz.save()
+
+        reply.status(201).send()
+      }
+    )
+  }
+
+  /**
+   * @deprecated
+   */
+  function quizQuery() {
+    const sBody = S.shape({
+      cond: S.object().optional(),
+      select: sListStringNonEmpty,
+      sort: sSort(['updatedAt']).optional(),
+      offset: S.integer().minimum(0).optional(),
+      limit: S.enum(S.null(), S.integer().minimum(1)),
+      hasCount: S.boolean().optional(),
+    })
+
+    const sResponse = S.shape({
+      result: S.list(S.object().additionalProperties(true)),
+      count: S.integer().minimum(0).optional(),
+    })
+
+    f.post(
+      '/q',
+      {
+        schema: {
+          tags,
+          summary: 'Query for cards',
+          body: sBody.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const {
+          cond = {},
+          select,
+          sort = [['updatedAt', -1]],
+          offset = 0,
+          limit = 10,
+          hasCount = true,
+        } = ensureSchema(sBody, req.body)
+
+        const r = await DbQuizModel.aggregate([
+          { $match: { userId } },
+          { $match: restoreDate(cond) },
+          {
+            $facet: {
+              result: [
+                { $sort: reduceToObj(sort as [string, any][]) },
+                { $skip: offset },
+                ...(limit ? [{ $limit: limit }] : []),
+                {
+                  $project: Object.assign(
+                    { _id: 0 },
+                    reduceToObj(select.map((k) => [k, 1]))
+                  ),
+                },
+              ],
+              count: hasCount ? [{ $count: 'count' }] : undefined,
+            },
+          },
+        ])
+
+        return ensureSchema(sResponse, {
+          result: r[0]?.result || [],
+          count: hasCount
+            ? dotProp.get(r[0] || {}, 'count.0.count') || 0
+            : undefined,
+        })
+      }
+    )
+  }
+
+  function quizCreate() {
+    const sQuery = S.shape({
+      entry: sStringNonEmpty,
+      template: sStringNonEmpty,
+    })
+
+    f.put<typeof sQuery.type>(
+      '/',
+      {
+        schema: {
+          tags,
+          summary: 'Create a quiz item',
+          querystring: sQuery.valueOf(),
+        },
+      },
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { entry, template } = req.query
+
+        const templateIds = (
+          await DbTemplateModel.find({ name: template }).select({
+            _id: 1,
+          })
+        ).map((t) => t._id)
+
+        await DbQuizModel.insertMany([
+          templateIds.map((templateId) => ({
+            userId,
+            entry,
+            templateId,
+          })),
+        ])
+
+        reply.status(201).send()
+      }
+    )
+  }
+
+  function quizUpdateSet() {
+    const sQuery = S.shape({
+      id: sId,
+    })
+
+    const sBody = S.shape({
+      set: S.shape({
+        front: S.string().optional(),
+        back: S.string().optional(),
+        mnemonic: S.string().optional(),
+        tag: sListStringNonEmpty.optional(),
+      }),
+    })
+
+    f.patch<typeof sQuery.type>(
+      '/',
+      {
+        schema: {
+          tags,
+          summary: 'Update a quiz item',
+          querystring: sQuery.valueOf(),
+          body: sBody.valueOf(),
+        },
+      },
+      async (req, reply) => {
+        const { id } = req.query
+        const { set } = ensureSchema(sBody, req.body)
+
+        await DbQuizModel.findByIdAndUpdate(id, {
+          $set: set,
+        })
+
+        reply.status(201).send()
+      }
+    )
+  }
+
+  function quizDelete() {
+    const sQuery = S.shape({
+      id: sIdJoinedComma,
+    })
+
+    f.delete<typeof sQuery.type>(
+      '/',
+      {
+        schema: {
+          tags,
+          summary: 'Delete a quiz item',
+          querystring: sQuery.valueOf(),
+        },
+      },
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { id } = req.query
+        await DbQuizModel.deleteMany({ _id: { $in: id.split(',') }, userId })
 
         reply.status(201).send()
       }

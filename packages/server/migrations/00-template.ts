@@ -2,7 +2,7 @@ import { mongoose } from '@typegoose/typegoose'
 import fs from 'fs-extra'
 import yaml from 'js-yaml'
 
-import { DbTemplateModel } from '@/db/mongo'
+import { DbCategoryModel, DbTemplateModel } from '@/db/mongo'
 
 async function main() {
   await mongoose.connect(process.env.MONGO_URI!, {
@@ -32,14 +32,22 @@ async function main() {
     }))
   )
 
+  const cats = await DbCategoryModel.insertMany(
+    Object.keys(template).map((type) => ({
+      name: 'zhquiz',
+      language: 'chinese',
+      type: type !== 'extra' ? type : undefined,
+      userId: ['zhquiz'],
+    }))
+  )
+
   const rs = await DbTemplateModel.insertMany(
     Object.entries(template).flatMap(([type, m]) =>
       Object.entries(m).map(([direction, { front, back }]) => ({
-        name: `zhquiz/${type}`,
+        categoryId: cats.filter((c) => c.type === type)[0]._id,
         direction,
         front,
         back,
-        userId: ['zhquiz'],
       }))
     )
   )
@@ -48,11 +56,11 @@ async function main() {
   fs.writeFileSync(
     'assets/mongo/template.json',
     JSON.stringify(
-      rs.map(({ _id, name, direction, userId }) => ({
-        _id,
-        name,
+      rs.map(({ _id, direction, categoryId }) => ({
+        templateId: _id,
+        categoryId,
+        type: cats.filter((c) => c.id === categoryId)[0].type,
         direction,
-        userId,
       }))
     )
   )

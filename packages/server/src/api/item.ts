@@ -1,31 +1,59 @@
+import fs from 'fs'
+
 import makePinyin from 'chinese-to-pinyin'
+import dotProp from 'dot-prop-immutable'
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
+import { zhDictionary } from '@/db/local'
+import { DbItemModel } from '@/db/mongo'
+import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import {
   ensureSchema,
   sCardType,
+  sDateTime,
   sIdJoinedComma,
+  sJoinedComma,
+  sListStringNonEmpty,
   sPageFalsable,
+  sSortJoinedComma,
   sStringNonEmpty,
 } from '@/util/schema'
 
-import { zhDictionary } from '../db/local'
-import { DbExtraModel } from '../db/mongo'
-import { reduceToObj } from '../util'
-
-/**
- * TODO: replace 'extra' system with shared library system.
- * TODO: Non-Chinese mode. No Chinese, no pinyin, except in 'chinese.ts'
- */
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const tags = ['extra']
-  const sExtra = S.shape({
-    chinese: S.string(),
-    pinyin: S.string().optional(),
-    english: S.string(),
+  const tags = ['item']
+  const sItem = S.shape({
+    entry: S.string(),
+    alt: sListStringNonEmpty.optional(),
+    reading: sListStringNonEmpty.optional(),
+    translation: sListStringNonEmpty.optional(),
+    updatedAt: sDateTime,
   })
+  const mySelectJoinedComma = sJoinedComma([
+    'entry',
+    'alt',
+    'reading',
+    'translation',
+    'updatedAt',
+  ])
+  const mySelectJoinedCommaDefault = 'entry,alt,reading,translation,updatedAt'
+  const mySortJoinedComma = sSortJoinedComma([
+    'entry',
+    'alt.0',
+    'reading.0',
+    'translation.0',
+    'updatedAt',
+  ])
+
+  const template = JSON.parse(
+    fs.readFileSync('assets/mongo/template.json', 'utf8')
+  ) as {
+    templateId: string
+    categoryId: string
+    type: string
+    direction: string
+  }[]
 
   extraAll()
   extraMatch()
@@ -37,13 +65,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function extraAll() {
     const sQuery = S.shape({
-      select: sStringNonEmpty.optional(),
+      select: mySelectJoinedComma.optional(),
       page: sPageFalsable.optional(),
-      sort: sStringNonEmpty.optional(),
+      sort: mySortJoinedComma.optional(),
     })
 
     const sResponse = S.shape({
-      result: S.list(sExtra.partial()),
+      result: S.list(sItem.partial()),
       count: S.integer().optional(),
     })
 
@@ -67,7 +95,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const {
           page: pagination = '',
-          select = 'chinese,pinyin,english',
+          select = mySelectJoinedCommaDefault,
           sort = '-updatedAt',
         } = ensureSchema(sQuery, req.query)
 
@@ -82,35 +110,41 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           perPage = p[1] || perPage
         }
 
-        const [rData, rCount] = await Promise.all([
-          DbExtraModel.aggregate([
-            { $match: { userId } },
-            {
-              $sort: sort.split(',').reduce((prev, k) => {
-                if (k.startsWith('-')) {
-                  prev[k.substr(1)] = -1
-                } else {
-                  prev[k] = 1
-                }
+        const r = await DbItemModel.aggregate([
+          ...getExtraChineseAggregate(userId),
+          {
+            $facet: {
+              result: [
+                {
+                  $sort: sort.split(',').reduce((prev, k) => {
+                    if (k.startsWith('-')) {
+                      prev[k.substr(1)] = -1
+                    } else {
+                      prev[k] = 1
+                    }
 
-                return prev
-              }, {} as Record<string, -1 | 1>),
+                    return prev
+                  }, {} as Record<string, -1 | 1>),
+                },
+                { $skip: (page - 1) * perPage },
+                { $limit: perPage },
+                {
+                  $project: Object.assign(
+                    { _id: 0 },
+                    reduceToObj(select.split(',').map((k) => [k, 1]))
+                  ),
+                },
+              ],
+              count: hasCount ? [{ $count: 'count' }] : undefined,
             },
-            { $skip: (page - 1) * perPage },
-            { $limit: perPage },
-            {
-              $project: Object.assign(
-                { _id: 0 },
-                reduceToObj(select.split(',').map((k) => [k, 1]))
-              ),
-            },
-          ]),
-          hasCount ? DbExtraModel.count({ userId }) : undefined,
+          },
         ])
 
         return {
-          result: rData,
-          count: rCount,
+          result: r[0]?.result || [],
+          count: hasCount
+            ? dotProp.get(r[0] || {}, 'count.0.count', 0)
+            : undefined,
         }
       }
     )
@@ -119,10 +153,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function extraMatch() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
-      select: sStringNonEmpty,
+      select: mySortJoinedComma.optional(),
     })
 
-    const sResponse = sExtra.partial()
+    const sResponse = sItem.partial()
 
     f.post<typeof sQuery.type>(
       '/match',
@@ -136,9 +170,24 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req) => {
-        const { q, select } = ensureSchema(sQuery, req.query)
-        const r = (await DbExtraModel.findOne({ chinese: q })) || ({} as any)
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { q, select = mySelectJoinedCommaDefault } = ensureSchema(
+          sQuery,
+          req.query
+        )
+        const r =
+          (
+            await DbItemModel.aggregate([
+              { $match: { entry: q } },
+              ...getExtraChineseAggregate(userId),
+              { $limit: 1 },
+            ])
+          )[0] || ({} as any)
 
         return select
           .split(',')
@@ -151,13 +200,17 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   }
 
   function extraCreate() {
-    const sBody = sExtra
+    const sQuery = S.shape({
+      lang: S.string().optional(),
+    })
+
+    const sBody = sItem
 
     const sResponse = S.shape({
       type: sCardType,
     })
 
-    f.put(
+    f.put<typeof sQuery.type>(
       '/',
       {
         schema: {
@@ -175,11 +228,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { chinese, pinyin = '', english } = ensureSchema(sBody, req.body)
+        const { lang } = req.query
+
+        const { entry, reading, translation = [] } = ensureSchema(
+          sBody,
+          req.body
+        )
 
         const existingTypes = zhDictionary
           .find({
-            $or: [{ entry: chinese }, { alt: { $containsString: chinese } }],
+            $or: [{ entry }, { alt: { $containsString: entry } }],
           })
           .reduce(
             (prev, { type }) => ({ ...prev, [type]: (prev[type] || 0) + 1 }),
@@ -204,11 +262,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           }
         }
 
-        await DbExtraModel.create({
-          userId,
-          chinese,
-          pinyin: pinyin.trim() || makePinyin(chinese, { keepRest: true }),
-          english,
+        await DbItemModel.create({
+          categoryId: template.filter((t) => t.type === 'extra')[0].categoryId,
+          entry,
+          reading:
+            reading && reading[0]
+              ? reading
+              : lang === 'chinese'
+              ? [makePinyin(entry, { keepRest: true })]
+              : undefined,
+          translation,
         })
 
         return {
@@ -224,7 +287,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     })
 
     const sBody = S.shape({
-      set: sExtra.partial(),
+      set: sItem.partial(),
     })
 
     f.patch<typeof sQuery.type>(
@@ -240,7 +303,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const { id } = ensureSchema(sQuery, req.query)
         const { set } = ensureSchema(sBody, req.body)
 
-        await DbExtraModel.updateMany(
+        await DbItemModel.updateMany(
           { _id: { $in: id.split(',') } },
           {
             $set: set,
@@ -279,9 +342,43 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { id } = ensureSchema(sQuery, req.query)
-        await DbExtraModel.purgeMany(userId, { _id: { $in: id.split(',') } })
+
+        await DbItemModel.deleteMany({ _id: { $in: id.split(',') } })
         reply.status(201).send()
       }
     )
+  }
+
+  function getExtraChineseAggregate(userId: string) {
+    return [
+      {
+        $lookup: {
+          from: 'template',
+          let: {
+            templateId: '$_id',
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$_id', '$$templateId'] },
+                    {
+                      userId,
+                      language: 'chinese',
+                      type: { $exists: false },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 't',
+        },
+      },
+      {
+        $match: { t: { $size: { $gt: 0 } } },
+      },
+    ]
   }
 }

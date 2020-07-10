@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
 import { checkAuthorize } from '@/util/api'
-import { ensureSchema, sAnyObject, sStringNonEmpty } from '@/util/schema'
+import { ensureSchema, sStringNonEmpty } from '@/util/schema'
 
 import { DbUserModel } from '../db/mongo'
 
@@ -49,7 +49,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function userUpdate() {
     const sBody = S.shape({
-      set: sAnyObject,
+      set: S.object(),
     })
 
     f.patch(

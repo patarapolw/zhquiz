@@ -9,6 +9,8 @@ import dotProp from 'dot-prop-immutable'
 import S from 'jsonschema-definer'
 import { nanoid } from 'nanoid'
 
+import { sDateTime } from '@/util/schema'
+
 import { getNextReview, repeatReview, srsMap } from './quiz'
 
 setGlobalOptions({ options: { allowMixed: Severity.ALLOW } })
@@ -54,8 +56,7 @@ export class DbUser {
   }
 
   static async purgeOne(userId: string) {
-    await DbItemModel.purgeMany(userId)
-    await DbQuizModel.deleteMany({ userId })
+    await DbCategoryModel.purgeMany(userId)
     await DbUserModel.deleteOne({ userId })
   }
 }
@@ -75,14 +76,8 @@ export const sQuizStat = S.shape({
     maxRight: S.integer().minimum(0),
     maxWrong: S.integer().minimum(0),
   }),
-  lastRight: S.anyOf(
-    S.object().custom((o) => o instanceof Date),
-    S.string().format('date-time')
-  ).optional(),
-  lastWrong: S.anyOf(
-    S.object().custom((o) => o instanceof Date),
-    S.string().format('date-time')
-  ).optional(),
+  lastRight: sDateTime.optional(),
+  lastWrong: sDateTime.optional(),
 }).partial()
 
 @index({ userId: 1, templateId: 1, entry: 1, direction: 1 }, { unique: true })
@@ -193,11 +188,81 @@ export class DbCategory {
   @prop({ required: true, validate: (u: string[]) => u.length > 0 })
   userId!: string[]
 
-  @prop({ required: true }) name!: string
+  @prop() name?: string
   @prop({ required: true }) language!: string
-  @prop({ required: true }) type!: string
+  @prop() type?: string
 
   @prop() parent?: string
+
+  static async purgeMany(userId: string, cond?: any) {
+    cond = cond
+      ? {
+          $and: [cond, { userId }],
+        }
+      : { userId }
+
+    const rs = await DbCategoryModel.aggregate([
+      { $match: cond },
+      {
+        $lookup: {
+          from: 'template',
+          localField: '_id',
+          foreignField: 'categoryId',
+          as: 't',
+        },
+      },
+      { $unwind: { path: '$t', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 1,
+          templateId: '$t._id',
+        },
+      },
+    ])
+
+    const tids = [
+      ...new Set<string>(rs.map((r) => r.templateId).filter((id) => id)),
+    ]
+
+    const cids = [...new Set<string>(rs.map((r) => r._id).filter((id) => id))]
+
+    const promises: Promise<any>[] = []
+
+    if (tids.length > 0) {
+      promises.push(
+        DbQuizModel.deleteMany({
+          userId,
+          templateId: { $in: tids },
+        }).exec()
+      )
+    }
+
+    if (cids.length > 0) {
+      promises.push(
+        DbTemplateModel.deleteMany({
+          categoryId: { $in: cids },
+        }).exec(),
+        DbItemModel.deleteMany({
+          categoryId: { $in: cids },
+        }).exec(),
+        (async () => {
+          await DbCategoryModel.updateMany(
+            {
+              _id: { $in: cids },
+              userId,
+            },
+            {
+              $pull: { userId },
+            }
+          )
+
+          await DbItemModel.deleteMany({ userId: { $size: 0 } })
+        })()
+      )
+    }
+
+    await Promise.all(promises)
+  }
 }
 
 export const DbCategoryModel = getModelForClass(DbCategory, {
@@ -212,25 +277,6 @@ export class DbTemplate {
 
   @prop({ required: true }) front!: string
   @prop() back?: string
-
-  static async purgeMany(userId: string, cond?: any) {
-    cond = cond
-      ? {
-          $and: [cond, { userId }],
-        }
-      : { userId }
-
-    if (!cond) {
-      await DbItemModel.updateMany(
-        {},
-        {
-          $pull: { userId },
-        }
-      )
-
-      await DbItemModel.deleteMany({ userId: { $size: 0 } })
-    }
-  }
 }
 
 export const DbTemplateModel = getModelForClass(DbTemplate, {
@@ -245,37 +291,8 @@ class DbItem {
   @prop() alt?: string[]
   @prop() reading?: string[]
   @prop() translation?: string[]
-
-  static async purgeMany(userId: string, cond?: any) {
-    cond = cond
-      ? {
-          $and: [cond, { userId }],
-        }
-      : { userId }
-
-    const rs = await DbItemModel.find(cond).select({
-      entry: 1,
-    })
-
-    if (rs.length > 0) {
-      await DbQuizModel.deleteMany({
-        entry: { $in: rs.map((el) => el.entry) },
-        type: 'user',
-        userId,
-      })
-    }
-
-    if (!cond) {
-      await DbItemModel.updateMany(
-        {},
-        {
-          $pull: { userId },
-        }
-      )
-
-      await DbItemModel.deleteMany({ userId: { $size: 0 } })
-    }
-  }
+  @prop() level?: number
+  @prop() tag?: string[]
 }
 
 export const DbItemModel = getModelForClass(DbItem, {
