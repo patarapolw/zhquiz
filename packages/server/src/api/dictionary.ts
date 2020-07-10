@@ -3,17 +3,13 @@ import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
 import { DbCategoryModel, DbItemModel, DbQuizModel } from '@/db/mongo'
-import { reduceToObj } from '@/util'
+import { arrayize, reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
 import {
-  sJoinedComma,
-  sPageFalsable,
-  splitComma,
-  sSortJoinedComma,
   sSrsLevel,
+  sStringIntegerNonNegative,
   sStringNonEmpty,
-  sStringOneOrPairInteger,
 } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
@@ -25,7 +21,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     translation: S.list(S.string()).optional(),
   })
   const myDictionaryType = S.string().enum('hanzi', 'vocab', 'sentence')
-  const myDictionaryJoinedComma = sJoinedComma(['hanzi', 'vocab', 'sentence'])
 
   getLevel()
   getMatch()
@@ -36,7 +31,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getLevel() {
     const sQuery = S.shape({
-      lang: sJoinedComma(['chinese']).optional(),
+      lang: S.string().enum('chinese').optional(),
     })
 
     const sResponse = S.shape({
@@ -70,7 +65,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { lang } = req.query
-        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
+        let [langFrom, langTo] = arrayize(lang) as string[]
+        langFrom = langFrom || 'chinese'
+        langTo = langTo || 'english'
 
         const result = await DbCategoryModel.aggregate([
           {
@@ -150,13 +147,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sQuery = S.shape({
       q: sStringNonEmpty,
       type: myDictionaryType,
-      select: sJoinedComma([
-        'entry',
-        'alt',
-        'reading',
-        'translation',
-      ]).optional(),
-      lang: sJoinedComma(['chinese']),
+      select: S.list(
+        S.string().enum('entry', 'alt', 'reading', 'translation')
+      ).optional(),
+      lang: S.string().enum('chinese').optional(),
     })
 
     const sResponse = S.shape({
@@ -186,11 +180,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const {
           q,
           type,
-          select = 'entry,alt,reading,translation',
+          select = ['entry', 'alt', 'reading', 'translation'],
           lang,
         } = req.query
 
-        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
+        let [langFrom, langTo] = arrayize(lang) as string[]
+        langFrom = langFrom || 'chinese'
+        langTo = langTo || 'english'
 
         const r = await DbItemModel.aggregate([
           {
@@ -210,7 +206,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     userId: {
                       $in: [userId, 'shared', 'default'],
                     },
-                    type: { $in: type },
+                    type: safeString(type),
                     langFrom: safeString(langFrom),
                     langTo: safeString(langTo),
                   },
@@ -250,7 +246,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           {
             $project: Object.assign(
               { _id: 0 },
-              reduceToObj((splitComma(select) || []).map((k) => [k, 1]))
+              reduceToObj(select.map((k) => [k, 1]))
             ),
           },
         ])
@@ -265,15 +261,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function doQuery() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
-      type: myDictionaryJoinedComma,
-      select: sJoinedComma([
-        'entry',
-        'alt',
-        'reading',
-        'translation',
-      ]).optional(),
-      page: sPageFalsable.optional(),
-      lang: sSortJoinedComma(['chinese']).optional(),
+      type: S.anyOf(myDictionaryType, S.list(myDictionaryType)),
+      select: S.list(
+        S.string().enum('entry', 'alt', 'reading', 'translation')
+      ).optional(),
+      page: S.anyOf(
+        sStringIntegerNonNegative,
+        S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
+      ).optional(),
+      limit: S.anyOf(sStringIntegerNonNegative, S.string().enum('-1')),
+      lang: S.string().enum('chinese').optional(),
     })
 
     const sResponse = S.shape({
@@ -304,24 +301,19 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const {
           q,
           type,
-          select = 'entry,alt,reading,translation',
-          page: pagination = '',
+          select = ['entry', 'alt', 'reading', 'translation'],
+          page: [page, perPage] = [],
+          limit = '10',
           lang,
         } = req.query
 
-        let page: number | null = 1
-        let perPage: number | null = 10
+        let [langFrom, langTo] = arrayize(lang) as string[]
+        langFrom = langFrom || 'chinese'
+        langTo = langTo || 'english'
 
-        if (pagination !== 'false') {
-          const p = (splitComma(pagination) || []).map((p) => parseInt(p))
-          page = p[0] || page
-          perPage = p[1] || perPage
-        } else {
-          page = null
-          perPage = null
-        }
-
-        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
+        const [iPage, iPerPage, iLimit] = [page, perPage, limit].map((el) =>
+          parseInt(el)
+        )
 
         const r = await DbItemModel.aggregate([
           {
@@ -344,7 +336,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     userId: {
                       $in: [userId, 'shared', 'default'],
                     },
-                    type: { $in: splitComma(type) || [] },
+                    type: { $in: arrayize(type).map(safeString) },
                     langFrom: safeString(langFrom),
                     langTo: safeString(langTo),
                   },
@@ -384,12 +376,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     frequency: -1,
                   },
                 },
-                ...(page && perPage ? [{ $skip: (page - 1) * perPage }] : []),
-                ...(perPage ? [{ $limit: perPage }] : []),
+                ...(iPage && iPerPage
+                  ? [{ $skip: (iPage - 1) * iPerPage }]
+                  : []),
+                ...((iPerPage || iLimit) && iLimit !== -1
+                  ? [{ $limit: iPerPage || iLimit }]
+                  : []),
                 {
                   $project: Object.assign(
                     { _id: 0 },
-                    reduceToObj((splitComma(select) || []).map((k) => [k, 1]))
+                    reduceToObj(select.map((k) => [k, 1]))
                   ),
                 },
               ],
@@ -409,8 +405,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function doRandom() {
     const sQuery = S.shape({
       type: myDictionaryType,
-      level: sStringOneOrPairInteger.optional(),
-      lang: sSortJoinedComma(['chinese']).optional(),
+      level: S.anyOf(
+        sStringIntegerNonNegative,
+        S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
+      ).optional(),
+      lang: S.string().enum('chinese').optional(),
     })
 
     const sResponse = S.shape({
@@ -438,14 +437,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { type, level, lang } = req.query
+        const { type, level = ['60'], lang } = req.query
 
-        const lvArr = (splitComma(level) || ['60']).map((lv) => parseInt(lv))
+        const lvArr = arrayize(level).map((lv) => parseInt(lv))
         if (lvArr.length === 1) {
           lvArr.unshift(1)
         }
 
-        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
+        let [langFrom, langTo] = arrayize(lang) as string[]
+        langFrom = langFrom || 'chinese'
+        langTo = langTo || 'english'
 
         const r = await DbQuizModel.aggregate([
           {
@@ -475,7 +476,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     userId: {
                       $in: [userId, 'shared', 'default'],
                     },
-                    type: { $in: type },
+                    type: safeString(type),
                     langFrom: safeString(langFrom),
                     langTo: safeString(langTo),
                   },
@@ -501,8 +502,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                 {
                   $match: {
                     $and: [
-                      { level: { $gte: lvArr[0] } },
-                      { level: { $lte: lvArr[1] } },
+                      { level: { $gte: lvArr[0] || 1 } },
+                      { level: { $lte: lvArr[1] || 60 } },
                     ],
                   },
                 },

@@ -7,8 +7,8 @@ import {
 import S from 'jsonschema-definer'
 
 import { DbUserModel } from '@/db/mongo'
+import { arrayize } from '@/util'
 import { checkAuthorize } from '@/util/api'
-import { sJoinedComma, splitComma } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['user']
@@ -20,16 +20,18 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   next()
 
   function userGetConfig() {
+    const mySelect =
+      process.env.NODE_ENV === 'development'
+        ? S.string()
+        : S.string().enum(
+            'levelMin',
+            'level',
+            'settings.level.whatToShow',
+            'settings.quiz'
+          )
+
     const sQuery = S.shape({
-      select:
-        process.env.NODE_ENV === 'development'
-          ? S.string()
-          : sJoinedComma([
-              'levelMin',
-              'level',
-              'settings.level.whatToShow',
-              'settings.quiz',
-            ]),
+      select: S.anyOf(mySelect, S.list(mySelect)),
     })
 
     f.get<typeof sQuery.type>(
@@ -49,7 +51,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const { select } = req.query
         const u = req.session.user
 
-        return (splitComma(select) || []).reduce(
+        return arrayize(select).reduce(
           (prev, k) => ({ ...prev, [k]: u[k] }),
           {} as Record<string, any>
         )

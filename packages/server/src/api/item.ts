@@ -4,39 +4,49 @@ import { DefaultHeaders, DefaultParams, FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
 import { DbCategoryModel, DbItemModel } from '@/db/mongo'
-import { reduceToObj } from '@/util'
+import { arrayize, reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
 import {
   sDateTime,
   sDictionaryType,
-  sIdJoinedComma,
-  sJoinedComma,
+  sId,
   sListStringNonEmpty,
-  sPageFalsable,
-  splitComma,
-  sSortJoinedComma,
+  sSort,
+  sStringIntegerNonNegative,
   sStringNonEmpty,
 } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['item']
-  const sItem = S.shape({
+  const myItem = S.shape({
     entry: S.string(),
     alt: sListStringNonEmpty.optional(),
     reading: sListStringNonEmpty.optional(),
     translation: sListStringNonEmpty.optional(),
-    updatedAt: sDateTime,
   })
-  const mySelectJoinedComma = sJoinedComma([
+  const myItemPartial = S.shape({
+    entry: S.string().optional(),
+    alt: sListStringNonEmpty.optional(),
+    reading: sListStringNonEmpty.optional(),
+    translation: sListStringNonEmpty.optional(),
+    updatedAt: sDateTime.optional(),
+  })
+  const mySelect = S.string().enum(
+    '_id',
+    'entry',
+    'alt',
+    'reading',
+    'translation'
+  )
+  const mySelectDefault: typeof mySelect.type[] = [
     '_id',
     'entry',
     'alt',
     'reading',
     'translation',
-  ])
-  const mySelectJoinedCommaDefault = '_id,entry,alt,reading,translation'
-  const mySortJoinedComma = sSortJoinedComma([
+  ]
+  const mySort = sSort([
     'entry',
     'alt.0',
     'reading.0',
@@ -54,13 +64,20 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getAll() {
     const sQuery = S.shape({
-      select: mySelectJoinedComma.optional(),
-      page: sPageFalsable.optional(),
-      sort: mySortJoinedComma.optional(),
+      select: S.anyOf(mySelect, S.list(mySelect)).optional(),
+      page: S.anyOf(
+        sStringIntegerNonNegative,
+        S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
+      ).optional(),
+      limit: S.anyOf(
+        sStringIntegerNonNegative,
+        S.string().enum('-1')
+      ).optional(),
+      sort: S.anyOf(mySort, S.list(mySort)).optional(),
     })
 
     const sResponse = S.shape({
-      result: S.list(sItem.partial()),
+      result: S.list(myItemPartial),
       count: S.integer().optional(),
     })
 
@@ -85,22 +102,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const {
-          page: pagination = '',
-          select = mySelectJoinedCommaDefault,
+          page: [page, perPage] = [],
+          limit = '10',
+          select = mySelectDefault,
           sort = '-updatedAt',
         } = req.query
 
-        let page: number | null = null
-        let perPage: number | null = 10
-
-        if (pagination !== 'false') {
-          const p = (splitComma(pagination) || []).map((p) => parseInt(p))
-          page = p[0] || page
-          perPage = p[1] || perPage
-        } else {
-          page = null
-          perPage = null
-        }
+        const [iPage, iPerPage, iLimit] = [page, perPage, limit].map((el) =>
+          parseInt(el)
+        )
 
         const r = await DbItemModel.aggregate([
           ...getExtraChineseAggregate(userId),
@@ -108,7 +118,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             $facet: {
               result: [
                 {
-                  $sort: (splitComma(sort) || []).reduce((prev, k) => {
+                  $sort: arrayize<string>(sort).reduce((prev, k) => {
                     if (k.startsWith('-')) {
                       prev[k.substr(1)] = -1
                     } else {
@@ -118,12 +128,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     return prev
                   }, {} as Record<string, -1 | 1>),
                 },
-                ...(page && perPage ? [{ $skip: (page - 1) * perPage }] : []),
-                ...(perPage ? [{ $limit: perPage }] : []),
+                ...(iPage && iPerPage
+                  ? [{ $skip: (iPage - 1) * iPerPage }]
+                  : []),
+                ...((iPerPage || iLimit) && iLimit !== -1
+                  ? [{ $limit: iPerPage || iLimit }]
+                  : []),
                 {
                   $project: Object.assign(
                     { _id: 0 },
-                    reduceToObj((splitComma(select) || []).map((k) => [k, 1]))
+                    reduceToObj(arrayize(select).map((k) => [k, 1]))
                   ),
                 },
               ],
@@ -143,10 +157,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getMatch() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
-      select: mySelectJoinedComma.optional(),
+      select: S.anyOf(mySelect, S.list(mySelect)).optional(),
     })
 
-    const sResponse = sItem.partial()
+    const sResponse = myItemPartial
 
     f.get<typeof sQuery.type>(
       '/match',
@@ -168,7 +182,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { q, select = mySelectJoinedCommaDefault } = req.query
+        const { q, select = mySelectDefault } = req.query
         const r =
           (
             await DbItemModel.aggregate([
@@ -178,7 +192,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             ])
           )[0] || ({} as any)
 
-        return (splitComma(select) || []).reduce(
+        return arrayize(select).reduce(
           (prev, k) => ({ ...prev, [k]: r[k] }),
           {} as Record<string, any>
         )
@@ -188,10 +202,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doCreate() {
     const sQuery = S.shape({
-      lang: sJoinedComma(['chinese']).optional(),
+      lang: S.string().enum('chinese').optional(),
     })
 
-    const sBody = sItem
+    const sBody = myItem
 
     const sResponse = S.shape({
       type: sDictionaryType.optional(),
@@ -216,7 +230,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { lang } = req.query
-        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
+        let [langFrom, langTo] = arrayize(lang) as string[]
+        langFrom = langFrom || 'chinese'
+        langTo = langTo || 'english'
 
         const { entry, reading, translation = [] } = req.body
 
@@ -327,11 +343,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doUpdate() {
     const sQuery = S.shape({
-      id: sIdJoinedComma,
+      id: S.anyOf(sId, S.list(sId)),
     })
 
     const sBody = S.shape({
-      set: sItem.partial(),
+      set: myItemPartial,
     })
 
     f.patch<
@@ -358,7 +374,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const { set } = req.body
 
         await DbItemModel.updateMany(
-          { _id: { $in: splitComma(id) || [] } },
+          { _id: { $in: arrayize(id) } },
           {
             $set: set,
           }
@@ -371,7 +387,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doDelete() {
     const sQuery = S.shape({
-      id: sIdJoinedComma,
+      id: S.anyOf(sId, S.list(sId)),
     })
 
     f.delete<typeof sQuery.type>(
@@ -391,7 +407,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { id } = req.query
 
-        await DbItemModel.deleteMany({ _id: { $in: splitComma(id) || [] } })
+        await DbItemModel.deleteMany({ _id: { $in: arrayize(id) } })
         reply.status(201).send()
       }
     )

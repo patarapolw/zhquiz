@@ -12,17 +12,14 @@ import {
   DbUserModel,
   sQuizStat,
 } from '@/db/mongo'
-import { reduceToObj } from '@/util'
+import { arrayize, reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
 import {
   sDateTime,
   sDictionaryType,
   sId,
-  sIdJoinedComma,
-  sJoinedComma,
   sListStringNonEmpty,
-  splitComma,
   sSrsLevel,
   sStringNonEmpty,
 } from '@/util/schema'
@@ -45,15 +42,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   next()
 
   function quizGetOne() {
+    const mySelect = S.string().enum(
+      '_id',
+      'direction',
+      'front',
+      'back',
+      'mnemonic'
+    )
     const sQuery = S.shape({
       id: sId,
-      select: sJoinedComma([
-        '_id',
-        'direction',
-        'front',
-        'back',
-        'mnemonic',
-      ]).optional(),
+      select: S.anyOf(mySelect, S.list(mySelect)).optional(),
     })
 
     const sResponse = S.shape({
@@ -79,12 +77,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       async (req, reply) => {
         reply.header('Cache-Control', 'no-cache')
 
-        const { id, select = 'front,back,mnemonic' } = req.query
+        const { id, select = ['front', 'back', 'mnemonic'] } = req.query
         const r =
           (await DbQuizModel.findById(id).select(
             Object.assign(
               { _id: 0 },
-              reduceToObj((splitComma(select) || []).map((k) => [k, 1]))
+              reduceToObj(arrayize(select).map((k) => [k, 1]))
             )
           )) || ({} as any)
 
@@ -97,7 +95,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sQuery = S.shape({
       q: sStringNonEmpty,
       type: sDictionaryType.optional(),
-      lang: sJoinedComma(['chinese']).optional(),
+      lang: S.string().enum('chinese').optional(),
     })
 
     const sResponse = S.shape({
@@ -128,7 +126,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           userId,
           entries: [q],
           type,
-          lang: splitComma(lang) || ['chinese'],
+          lang: arrayize(lang).map((el) => el || ''),
         })
       }
     )
@@ -185,7 +183,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       {
         $match: {
           userId: o.userId,
-          entry: { $in: o.entries.map((el) => safeString(el)) },
+          entry: { $in: o.entries.map(safeString) },
         },
       },
       {
@@ -358,12 +356,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   }
 
   function quizInit() {
+    const myType = S.string().enum('hanzi', 'vocab', 'sentence', 'extra')
+    const myStage = S.string().enum('new', 'leech', 'learning', 'graduated')
+
     const sQuery = S.shape({
-      type: sJoinedComma(['hanzi', 'vocab', 'sentence', 'extra']),
-      stage: sJoinedComma(['new', 'leech', 'learning']),
-      direction: S.string(),
-      due: S.string().enum('1'),
-      tag: S.string(),
+      type: S.anyOf(myType, S.list(myType)),
+      stage: S.anyOf(myStage, S.list(myStage)),
+      direction: S.anyOf(S.string(), S.list(S.string())),
+      isDue: S.string().enum('1').optional(),
+      tag: S.anyOf(S.string(), S.list(S.string())),
     })
 
     const sQuizItem = S.shape({
@@ -396,18 +397,19 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const type = splitComma(req.query.type)
-        const stage = splitComma(req.query.stage)
-        const direction = splitComma(req.query.direction)
-        const isDue = !!req.query.due
+        const {
+          type: _type,
+          stage: _stage,
+          direction: _direction,
+          isDue: _isDue,
+          tag: _tag,
+        } = req.query
 
-        const tag = splitComma(req.query.tag)
-
-        if (!type || !stage || !direction) {
-          return {
-            quiz: [],
-          }
-        }
+        const type = arrayize(_type)
+        const stage = arrayize(_stage)
+        const direction = arrayize(_direction)
+        const isDue = !!_isDue
+        const tag = arrayize(_tag)
 
         /**
          * No need to await
@@ -453,7 +455,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
               $and: [
                 {
                   userId,
-                  tag: tag ? { $in: tag.map((t) => safeString(t)) } : undefined,
+                  tag: tag ? { $in: tag.map(safeString) } : undefined,
                 },
                 ...($or.length ? [{ $or }] : []),
               ],
@@ -469,7 +471,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                 { $match: { $expr: { $eq: ['templateId', '$$templateId'] } } },
                 {
                   $match: {
-                    direction: { $in: direction.map((t) => safeString(t)) },
+                    direction: { $in: direction.map(safeString) },
                   },
                 },
               ],
@@ -489,7 +491,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                   $match: {
                     type: {
                       $in: type.map((t) =>
-                        t === 'extra' ? { $exists: false } : t
+                        t === 'extra' ? { $exists: false } : safeString(t)
                       ),
                     },
                   },
@@ -539,7 +541,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sQuery = S.shape({
       entry: sStringNonEmpty,
       type: sDictionaryType.optional(),
-      lang: sJoinedComma(['chinese']).optional(),
+      lang: S.string().enum('chinese').optional(),
     })
 
     f.put<typeof sQuery.type>(
@@ -558,7 +560,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { entry, type, lang } = req.query
-        const [langFrom, langTo = 'english'] = splitComma(lang) || ['chinese']
+
+        let [langFrom, langTo] = arrayize(lang) as string[]
+        langFrom = langFrom || 'chinese'
+        langTo = langTo || 'english'
 
         const templateIds = (
           await DbCategoryModel.aggregate([
@@ -645,7 +650,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function quizDelete() {
     const sQuery = S.shape({
-      id: sIdJoinedComma,
+      id: S.anyOf(sId, S.list(sId)),
     })
 
     f.delete<typeof sQuery.type>(
@@ -665,7 +670,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { id } = req.query
         await DbQuizModel.deleteMany({
-          _id: { $in: splitComma(id) || [] },
+          _id: { $in: arrayize(id) },
           userId,
         })
 
