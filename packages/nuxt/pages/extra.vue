@@ -120,7 +120,7 @@
 import { Component, Vue } from 'nuxt-property-decorator'
 
 import { speak } from '~/assets/speak'
-import { IDictionaryItem } from '~/types/item'
+import { IDictionaryItem } from '~/assets/types/item'
 
 interface IExtra {
   chinese: string
@@ -179,6 +179,8 @@ export default class ExtraPage extends Vue {
 
     const { result, count } = await this.$axios.$get('/api/item/all', {
       params: {
+        type: 'user',
+        select: ['entry', 'reading', 'translation'],
         page: [p, this.perPage],
         sort: `${this.sort.type === 'desc' ? '-' : ''}${this.sort.key}`,
       },
@@ -196,7 +198,7 @@ export default class ExtraPage extends Vue {
       return
     }
 
-    const { type } = await this.$axios.$put('/api/item/', normItem)
+    const { type } = await this.$axios.$put('/api/item', normItem)
 
     this.newItem.chinese = ''
     this.newItem.pinyin = ''
@@ -225,6 +227,7 @@ export default class ExtraPage extends Vue {
       await this.$axios.$delete('/api/item', {
         params: {
           entry: row.entry,
+          type: 'user',
         },
       })
       this.tableData = this.tableData.filter((d) => d.entry === row.entry)
@@ -245,7 +248,8 @@ export default class ExtraPage extends Vue {
     if (this.selected.row) {
       const { ids } = await this.$axios.$get('/api/quiz/ids', {
         params: {
-          q: this.selected.row.entry,
+          entry: this.selected.row.entry,
+          type: 'user',
         },
       })
 
@@ -284,7 +288,7 @@ export default class ExtraPage extends Vue {
     await this.loadPage(true)
   }
 
-  normalizeExtraForDatabase(item: IExtra) {
+  normalizeExtraForDatabase(item: IExtra): IDictionaryItem | null {
     if (!item.chinese) {
       return null
     }
