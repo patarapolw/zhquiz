@@ -246,15 +246,17 @@ export default class ExtraPage extends Vue {
 
   async loadSelectedStatus() {
     if (this.selected.row) {
-      const { ids } = await this.$axios.$get('/api/quiz/ids', {
+      const { result } = await this.$axios.$get('/api/quiz', {
         params: {
           entry: this.selected.row.entry,
           type: 'user',
+          select: ['_id'],
+          limit: -1,
         },
       })
 
-      this.selected.quizIds = ids
-      this.$set(this.selected, 'quizIds', ids)
+      this.selected.quizIds = result.map((r: any) => r._id)
+      this.$set(this.selected, 'quizIds', this.selected.quizIds)
     }
   }
 

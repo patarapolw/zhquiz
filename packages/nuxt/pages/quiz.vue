@@ -754,7 +754,7 @@ export default class QuizPage extends Vue {
           settings: {
             quiz: { type, stage, direction, isDue } = {} as any,
           } = {},
-        } = await this.$axios.$get('/api/user/', {
+        } = await this.$axios.$get('/api/user', {
           params: {
             select: 'settings.quiz',
           },
@@ -830,8 +830,8 @@ export default class QuizPage extends Vue {
         type: 'is-danger',
         hasIcon: true,
         onConfirm: async () => {
-          await this.$axios.$delete('/api/quiz/', {
-            data: {
+          await this.$axios.$delete('/api/quiz', {
+            params: {
               id: quizId,
             },
           })
@@ -917,7 +917,7 @@ export default class QuizPage extends Vue {
 
     let q = this.quizData[quizId]
     if (!q || !q.templateId || !q.entry) {
-      q = await this.$axios.$get('/api/quiz/', {
+      q = await this.$axios.$get('/api/quiz', {
         params: {
           id: quizId,
           select: ['entry', 'templateId', 'front', 'back', 'mnemonic'],
@@ -945,7 +945,7 @@ export default class QuizPage extends Vue {
 
     let data = this.dictionaryData[t.type][q.entry]
     if (!data || !data.reading) {
-      data = await this.$axios.$get('/api/dictionary/', {
+      data = await this.$axios.$get('/api/dictionary', {
         params: {
           q: q.entry,
           select: ['entry', 'alt', 'reading', 'translation'],
@@ -968,6 +968,8 @@ export default class QuizPage extends Vue {
             params: {
               q: q.entry,
               select: ['entry', 'translation'],
+              type: 'sentence',
+              limit: 10,
             },
           })
         ).result
@@ -1021,14 +1023,21 @@ export default class QuizPage extends Vue {
       return
     }
 
-    await this.$axios.$patch('/api/card/', {
-      id: _id,
-      set: {
-        front,
-        back,
-        mnemonic,
+    await this.$axios.$patch(
+      '/api/quiz',
+      {
+        set: {
+          front,
+          back,
+          mnemonic,
+        },
       },
-    })
+      {
+        params: {
+          id: _id,
+        },
+      }
+    )
 
     this.quizData[_id] = {
       _id,

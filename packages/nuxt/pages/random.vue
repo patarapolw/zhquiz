@@ -204,7 +204,7 @@ export default class RandomPage extends Vue {
   }
 
   async onUserChanged() {
-    const { levelMin, level } = await this.$axios.$get('/api/user/', {
+    const { levelMin, level } = await this.$axios.$get('/api/user', {
       params: {
         select: ['levelMin', 'level'],
       },
@@ -231,7 +231,7 @@ export default class RandomPage extends Vue {
     } = await this.$axios.$get('/api/dictionary/random', {
       params: {
         type,
-        select: 'entry,translation',
+        select: ['entry', 'translation'],
         level: [this.levelMin, this.level],
       },
     })
@@ -248,11 +248,9 @@ export default class RandomPage extends Vue {
     }
 
     if (entry) {
-      await this.$axios.$put('/api/quiz/', undefined, {
-        params: {
-          entry,
-          type,
-        },
+      await this.$axios.$put('/api/quiz', {
+        entry,
+        type,
       })
       await this.getQuizStatus(type)
 
@@ -266,7 +264,7 @@ export default class RandomPage extends Vue {
       return
     }
 
-    await this.$axios.$delete('/api/quiz/', {
+    await this.$axios.$delete('/api/quiz', {
       params: {
         id: quizIds,
       },
@@ -281,12 +279,14 @@ export default class RandomPage extends Vue {
     let quizIds: string[] = []
 
     if (entry) {
-      const { ids } = await this.$axios.$delete('/api/quiz/ids', {
+      const { result } = await this.$axios.$get('/api/quiz', {
         params: {
           q: entry,
+          select: ['_id'],
+          limit: -1,
         },
       })
-      quizIds = ids
+      quizIds = result.map(({ _id }: any) => _id)
     }
 
     this.selected.quizIds = quizIds

@@ -89,10 +89,13 @@
 
 <script lang="ts">
 import { User } from 'firebase/app'
-import { Component, Vue, Watch } from 'nuxt-property-decorator'
+import { Component, Vue } from 'nuxt-property-decorator'
 
-@Component({
+@Component<SettingsPage>({
   layout: 'app',
+  created() {
+    this.onUserChanged()
+  },
 })
 export default class SettingsPage extends Vue {
   lv = [1, 60]
@@ -108,16 +111,13 @@ export default class SettingsPage extends Vue {
     return u ? u.email : undefined
   }
 
-  created() {
-    this.onUserChanged()
-  }
-
-  @Watch('email')
   async onUserChanged() {
     if (this.email) {
       this.isInit = false
-      const { levelMin, level } = await this.$axios.$post('/api/user/', {
-        select: ['levelMin', 'level'],
+      const { levelMin, level } = await this.$axios.$get('/api/user', {
+        params: {
+          select: ['levelMin', 'level'],
+        },
       })
       this.lv = [levelMin || 1, level || 60]
       this.isInit = true
@@ -125,7 +125,7 @@ export default class SettingsPage extends Vue {
   }
 
   async doSave() {
-    await this.$axios.$patch('/api/user/', {
+    await this.$axios.$patch('/api/user', {
       set: {
         levelMin: this.lv[0],
         level: this.lv[1],
@@ -135,7 +135,7 @@ export default class SettingsPage extends Vue {
   }
 
   async doDeleteAccount() {
-    await this.$axios.$delete('/api/user/')
+    await this.$axios.$delete('/api/user')
     this.$router.push('/')
   }
 }

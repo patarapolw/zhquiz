@@ -215,7 +215,7 @@ export default class LevelPage extends Vue {
   async init() {
     const {
       settings: { level: { whatToShow } = {} as any } = {},
-    } = await this.$axios.$get('/api/user/', {
+    } = await this.$axios.$get('/api/user', {
       params: {
         select: 'settings.level.whatToShow',
       },
@@ -239,7 +239,7 @@ export default class LevelPage extends Vue {
       }[]
     } = await (entries.length > 0
       ? this.$axios.$post('/api/dictionary/level', {
-          entries,
+          entry: entries,
           select: ['entry', 'srsLevel'],
         })
       : this.$axios.$get('/api/dictionary/level', {
@@ -266,7 +266,7 @@ export default class LevelPage extends Vue {
   }
 
   async onWhatToShowChanged() {
-    await this.$axios.$patch('/api/user/', {
+    await this.$axios.$patch('/api/user', {
       set: {
         'settings.level.whatToShow': this.whatToShow,
       },
@@ -275,12 +275,14 @@ export default class LevelPage extends Vue {
 
   async loadSelectedStatus() {
     if (this.selected.entries.length) {
-      const { result } = await this.$axios.$post('/api/quiz/ids', {
-        entries: this.selected.entries,
+      const { result } = await this.$axios.$post('/api/quiz', {
+        entry: this.selected.entries,
         type: 'vocab',
+        select: ['_id'],
       })
 
-      this.$set(this.selected, 'quizIds', result)
+      this.selected.quizIds = result.map(({ _id }: any) => _id)
+      this.$set(this.selected, 'quizIds', this.selected.quizIds)
     }
   }
 
@@ -302,7 +304,7 @@ export default class LevelPage extends Vue {
     const { entries, quizIds } = this.selected
 
     if (entries.length && quizIds.length) {
-      await this.$axios.$post('/api/quiz/deleteMulti', { ids: quizIds })
+      await this.$axios.$post('/api/quiz/delete', { id: quizIds })
       this.$buefy.snackbar.open(
         `Removed vocab: ${entries.slice(0, 3).join(',')}${
           entries.length > 3 ? '...' : ''

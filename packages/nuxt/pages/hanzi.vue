@@ -418,7 +418,7 @@ export default class HanziPage extends Vue {
       .slice(0, 10)
   }
 
-  onQChange() {
+  async onQChange() {
     const qs = this.q.split('').filter((h) => XRegExp('\\p{Han}').test(h))
     this.$set(
       this,
@@ -426,7 +426,7 @@ export default class HanziPage extends Vue {
       qs.filter((h, i) => qs.indexOf(h) === i)
     )
     this.i = 0
-    this.load()
+    await this.load()
   }
 
   async load() {
@@ -443,14 +443,14 @@ export default class HanziPage extends Vue {
           q: this.current,
           type: 'vocab',
           select: ['entry', 'alt', 'reading', 'translation'],
-          limit: -1,
+          limit: 10,
           exclude: Object.keys(this.dict.vocab),
         }),
         this.$axios.$post('/api/dictionary/q', {
           q: this.current,
           type: 'sentence',
           select: ['entry', 'translation'],
-          limit: -1,
+          limit: 10,
           exclude: Object.keys(this.dict.sentence),
         }),
       ])
@@ -477,15 +477,16 @@ export default class HanziPage extends Vue {
     const { entry, type } = this.selected
 
     if (entry && type) {
-      const { ids } = await this.$axios.$get('/api/quiz/ids', {
+      const { result } = await this.$axios.$get('/api/quiz', {
         params: {
           q: entry,
           type,
+          select: ['_id'],
         },
       })
 
-      this.selected.quizIds = ids
-      this.$set(this.selected, 'quizIds', ids)
+      this.selected.quizIds = result.map((r: any) => r._id)
+      this.$set(this.selected, 'quizIds', this.selected.quizIds)
     }
   }
 
@@ -493,7 +494,7 @@ export default class HanziPage extends Vue {
     const { entry, type } = this.selected
 
     if (entry && type) {
-      await this.$axios.$put('/api/quiz/', {
+      await this.$axios.$put('/api/quiz', {
         entry,
         type,
       })
@@ -505,7 +506,7 @@ export default class HanziPage extends Vue {
     const { entry, type, quizIds } = this.selected
 
     if (entry && type && quizIds.length) {
-      await this.$axios.$delete('/api/quiz/', {
+      await this.$axios.$delete('/api/quiz', {
         params: {
           id: quizIds,
         },
