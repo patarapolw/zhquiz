@@ -1,7 +1,7 @@
 <template>
   <section>
     <b-loading v-if="isLoading" active />
-    <div v-if="isInit" class="LevelPage container">
+    <div v-if="allData.size > 0" class="LevelPage container">
       <div class="field">
         <label class="label">Filter</label>
         <b-field>
@@ -29,25 +29,27 @@
         </b-field>
       </div>
 
-      <b-table :key="whatToShow" :data="shownData">
+      <b-table :key="whatToShow" :data="currentData">
         <template slot-scope="props">
           <b-table-column field="level" label="Level" width="40">
-            {{ props.row.level }}
+            <span
+              class="clickable"
+              @contextmenu.prevent="
+                openSelectedContextmenu(evt, props.row.level)
+              "
+            >
+              {{ props.row.level }}
+            </span>
           </b-table-column>
 
-          <b-table-column field="item" label="Item">
+          <b-table-column field="entries" label="Item">
             <div>
               <span
-                v-for="t in props.row.item"
+                v-for="t in props.row.entries"
                 :key="t"
                 class="tag clickable"
                 :class="getTagClass(t)"
-                @contextmenu.prevent="
-                  (evt) => {
-                    selected = t
-                    $refs.contextmenu.open(evt)
-                  }
-                "
+                @contextmenu.prevent="openSelectedContextmenu(evt, t)"
               >
                 {{ t }}
               </span>
@@ -58,20 +60,20 @@
 
       <client-only>
         <vue-context ref="contextmenu" lazy>
-          <li>
+          <li v-if="selected.entries.length === 1">
             <a
               role="button"
-              @click.prevent="speak(selected)"
-              @keypress.prevent="speak(selected)"
+              @click.prevent="speakSelected"
+              @keypress.prevent="speakSelected"
             >
               Speak
             </a>
           </li>
-          <li v-if="!vocabIds[selected] || !vocabIds[selected].length">
+          <li v-if="!selected.quiz.length">
             <a
               role="button"
-              @click.prevent="addToQuiz(selected)"
-              @keypress.prevent="addToQuiz(selected)"
+              @click.prevent="addToQuiz"
+              @keypress.prevent="addToQuiz"
             >
               Add to quiz
             </a>
@@ -79,31 +81,31 @@
           <li v-else>
             <a
               role="button"
-              @click.prevent="removeFromQuiz(selected)"
-              @keypress.prevent="removeFromQuiz(selected)"
+              @click.prevent="removeFromQuiz"
+              @keypress.prevent="removeFromQuiz"
             >
               Remove from quiz
             </a>
           </li>
-          <li>
+          <li v-if="selected.entries.length === 1">
             <nuxt-link
-              :to="{ path: '/vocab', query: { q: selected } }"
+              :to="{ path: '/vocab', query: { q: selected.entries[0] } }"
               target="_blank"
             >
               Search for vocab
             </nuxt-link>
           </li>
-          <li>
+          <li v-if="selected.entries.length === 1">
             <nuxt-link
-              :to="{ path: '/hanzi', query: { q: selected } }"
+              :to="{ path: '/hanzi', query: { q: selected.entries[0] } }"
               target="_blank"
             >
               Search for Hanzi
             </nuxt-link>
           </li>
-          <li>
+          <li v-if="selected.entries.length === 1">
             <a
-              :href="`https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb=*${selected}*`"
+              :href="`https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb=*${selected.entries[0]}*`"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -117,23 +119,41 @@
 </template>
 
 <script lang="ts">
-import { Component, Vue, Watch } from 'nuxt-property-decorator'
+import { Component, Vue } from 'nuxt-property-decorator'
 
 import { speak } from '~/assets/speak'
 
-@Component({
+@Component<LevelPage>({
   layout: 'app',
+  created() {
+    this.init()
+  },
+  watch: {
+    whatToShow() {
+      this.onWhatToShowChanged()
+    },
+    'selected.entries': {
+      deep: true,
+      handler() {
+        this.loadSelectedStatus()
+      },
+    },
+  },
 })
 export default class LevelPage extends Vue {
-  isInit = false
   isLoading = true
 
-  data = [] as any[]
-  selected = ''
+  allData = new Map<number, Set<string>>()
+  srsLevel = new Map<string, number>()
 
-  vocabIds: any = {}
+  selected: {
+    entries: string[]
+    quizIds: string[]
+  } = {
+    entries: [],
+    quizIds: [],
+  }
 
-  vocabSrsLevel: any = {}
   tagClassMap = [
     (lv: any) => (lv > 2 ? 'is-success' : ''),
     (lv: any) => (lv > 0 ? 'is-warning' : ''),
@@ -142,51 +162,39 @@ export default class LevelPage extends Vue {
 
   whatToShow = 'all'
 
-  speak = speak
+  get currentData() {
+    return Array.from(this.allData)
+      .map(([level, entries]) => {
+        return {
+          level,
+          entries: Array.from(entries)
+            .filter((v) => {
+              if (
+                this.whatToShow === 'all-quiz' ||
+                this.whatToShow === 'learning'
+              ) {
+                if (typeof this.srsLevel.get(v) !== 'undefined') {
+                  return true
+                }
+              }
 
-  get email() {
-    const u = this.$store.state.user
-    return u ? (u.email as string) : undefined
-  }
+              if (this.whatToShow === 'learning') {
+                if (this.srsLevel.get(v)! <= 2) {
+                  return true
+                }
+              }
 
-  get shownData() {
-    const data = JSON.parse(JSON.stringify(this.data)) as any[]
-    return data
-      .map((d) => {
-        if (this.whatToShow === 'all-quiz' || this.whatToShow === 'learning') {
-          d.item = d.item.filter(
-            (v: string) => typeof this.vocabSrsLevel[v] !== 'undefined'
-          )
+              return false
+            })
+            .sort(),
         }
-
-        if (this.whatToShow === 'learning') {
-          d.item = d.item.filter((v: string) => !(this.vocabSrsLevel[v] > 2))
-        }
-
-        return d
       })
-      .filter(({ item }) => item.length > 0)
-  }
-
-  async created() {
-    await this.onUserChange()
-
-    this.isLoading = true
-    const data = await this.$axios.$get('/api/vocab/all')
-
-    this.$set(
-      this,
-      'data',
-      Object.entries(data).map(([lv, vs]) => {
-        return { level: parseInt(lv), item: vs }
-      })
-    )
-
-    this.isLoading = false
+      .filter((a) => a.entries.length > 0)
+      .sort((a, b) => a.level - b.level)
   }
 
   getTagClass(item: string) {
-    const srsLevel = this.vocabSrsLevel[item]
+    const srsLevel = this.srsLevel.get(item)
 
     if (typeof srsLevel !== 'undefined') {
       if (srsLevel === -1) {
@@ -204,46 +212,59 @@ export default class LevelPage extends Vue {
     return 'is-light'
   }
 
-  @Watch('email')
-  async onUserChange() {
-    if (this.email) {
-      const {
-        settings: { level: { whatToShow } = {} as any } = {},
-      } = await this.$axios.$post('/api/user/', {
-        select: ['settings.level.whatToShow'],
-      })
+  async init() {
+    const {
+      settings: { level: { whatToShow } = {} as any } = {},
+    } = await this.$axios.$get('/api/user/', {
+      params: {
+        select: 'settings.level.whatToShow',
+      },
+    })
 
-      if (whatToShow) {
-        this.$set(this, 'whatToShow', whatToShow)
-      }
-
-      this.isInit = true
-
-      const { result } = await this.$axios.$post('/api/card/q', {
-        cond: {
-          type: 'vocab',
-        },
-        join: ['quiz'],
-        select: ['item', 'srsLevel'],
-        limit: null,
-        hasCount: false,
-      })
-
-      this.vocabSrsLevel = {}
-      result.map((d: any) => {
-        let lv = this.vocabSrsLevel[d.item]
-        this.vocabSrsLevel[d.item] = lv = typeof lv === 'undefined' ? -1 : lv
-
-        if (typeof d.srsLevel === 'number') {
-          this.vocabSrsLevel[d.item] = lv > d.srsLevel ? lv : d.srsLevel
-        }
-      })
-
-      this.$set(this, 'vocabSrsLevel', this.vocabSrsLevel)
+    if (whatToShow) {
+      this.$set(this, 'whatToShow', whatToShow)
     }
+
+    await this.reload()
   }
 
-  @Watch('whatToShow')
+  async reload(...entries: string[]) {
+    const {
+      result,
+    }: {
+      result: {
+        entry: string
+        level?: number
+        srsLevel?: number
+      }[]
+    } = await (entries.length > 0
+      ? this.$axios.$post('/api/dictionary/level', {
+          entries,
+          select: ['entry', 'srsLevel'],
+        })
+      : this.$axios.$get('/api/dictionary/level', {
+          params: {
+            select: ['entry', 'srsLevel', 'level'],
+          },
+        }))
+
+    result.map(({ entry, level, srsLevel }) => {
+      if (level) {
+        const levelData = this.allData.get(level) || new Set()
+        levelData.add(entry)
+        this.allData.set(level, levelData)
+      }
+
+      this.srsLevel.set(entry, typeof srsLevel === 'undefined' ? -1 : srsLevel)
+    })
+
+    if (!entries.length) {
+      this.$set(this, 'allData', this.allData)
+    }
+
+    this.$set(this, 'srsLevel', this.srsLevel)
+  }
+
   async onWhatToShowChanged() {
     await this.$axios.$patch('/api/user/', {
       set: {
@@ -252,56 +273,65 @@ export default class LevelPage extends Vue {
     })
   }
 
-  @Watch('selected')
-  async loadVocabStatus() {
-    if (this.selected) {
-      const { result } = await this.$axios.$post('/api/card/q', {
-        cond: {
-          item: this.selected,
-          type: 'vocab',
-        },
-        join: ['quiz'],
-        select: ['_id', 'srsLevel'],
-        hasCount: false,
+  async loadSelectedStatus() {
+    if (this.selected.entries.length) {
+      const { result } = await this.$axios.$post('/api/quiz/ids', {
+        entries: this.selected.entries,
+        type: 'vocab',
       })
 
-      const srsLevels = result
-        .map((r: any) => r.srsLevel)
-        .filter((s: any) => typeof s === 'number')
-      const srsLevel =
-        srsLevels.length > 0
-          ? Math.max(...srsLevels)
-          : result.length > 0
-          ? -1
-          : undefined
-
-      this.$set(
-        this.vocabIds,
-        this.selected,
-        result.map((r: any) => r._id)
-      )
-      this.$set(this.vocabSrsLevel, this.selected, srsLevel)
+      this.$set(this.selected, 'quizIds', result)
     }
   }
 
-  async addToQuiz(item: string) {
-    const type = 'vocab'
+  async addToQuiz() {
+    const { entries } = this.selected
 
-    await this.$axios.$put('/api/card/', {
-      create: { item, type },
-    })
-    this.$buefy.snackbar.open(`Added ${type}: ${item} to quiz`)
-
-    this.loadVocabStatus()
+    if (entries.length) {
+      await this.$axios.$put('/api/quiz', { entry: entries, type: 'vocab' })
+      this.$buefy.snackbar.open(
+        `Added vocab: ${entries.slice(0, 3).join(',')}${
+          entries.length > 3 ? '...' : ''
+        } to quiz`
+      )
+      await this.reload(...entries)
+    }
   }
 
-  async removeFromQuiz(item: string) {
-    if (this.vocabIds[item]) {
-      await this.$axios.$delete('/api/card/', {
-        data: { id: this.vocabIds[item] },
-      })
-      this.$buefy.snackbar.open(`Removed vocab: ${item} from quiz`)
-      this.loadVocabStatus()
+  async removeFromQuiz() {
+    const { entries, quizIds } = this.selected
+
+    if (entries.length && quizIds.length) {
+      await this.$axios.$post('/api/quiz/deleteMulti', { ids: quizIds })
+      this.$buefy.snackbar.open(
+        `Removed vocab: ${entries.slice(0, 3).join(',')}${
+          entries.length > 3 ? '...' : ''
+        }  from quiz`
+      )
+      await this.reload(...entries)
+    }
+  }
+
+  async speakSelected() {
+    const {
+      entries: [s],
+    } = this.selected
+    if (s) {
+      await speak(s)
+    }
+  }
+
+  async openSelectedContextmenu(evt: MouseEvent, it: number | string) {
+    if (typeof it === 'number') {
+      const selected = this.currentData.filter(({ level }) => level === it)[0]
+      this.selected.entries = selected ? selected.entries : []
+    } else if (typeof it === 'string') {
+      this.selected.entries = [it]
+    }
+
+    if (this.selected.entries.length > 0) {
+      await this.loadSelectedStatus()
+      ;(this.$refs.contextmenu as any).open(evt)
     }
   }
 }
