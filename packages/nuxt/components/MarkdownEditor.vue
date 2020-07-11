@@ -24,9 +24,21 @@
 
 <script lang="ts">
 import {} from 'codemirror'
-import { Component, Prop, Vue, Watch } from 'nuxt-property-decorator'
+import { Component, Prop, Vue } from 'nuxt-property-decorator'
 
-@Component
+@Component<MarkdownEditor>({
+  created() {
+    this.mq.addListener(this.mqListener.bind(this))
+  },
+  beforeDestroy() {
+    this.mq.removeListener(this.mqListener.bind(this))
+  },
+  watch: {
+    value() {
+      this.onValueChange()
+    },
+  },
+})
 export default class MarkdownEditor extends Vue {
   @Prop({ default: '' }) value!: string
   @Prop({ required: true }) renderer!: (s: string) => string
@@ -46,14 +58,6 @@ export default class MarkdownEditor extends Vue {
     return this.renderer(this.markdown)
   }
 
-  created() {
-    this.mq.addListener(this.mqListener)
-  }
-
-  beforeDestroy() {
-    this.mq.removeListener(this.mqListener)
-  }
-
   mqListener(ev: MediaQueryListEvent) {
     this.isPreview = ev.matches
   }
@@ -64,7 +68,6 @@ export default class MarkdownEditor extends Vue {
     }
   }
 
-  @Watch('value')
   onValueChange() {
     this.isFromExternal = true
     this.codemirror.setValue(this.value)

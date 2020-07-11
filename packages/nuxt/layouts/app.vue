@@ -97,11 +97,23 @@
 </template>
 
 <script lang="ts">
-import { Component, Vue, Watch } from 'nuxt-property-decorator'
+import { Component, Vue } from 'nuxt-property-decorator'
 
 import { getGravatarUrl } from '~/assets/gravatar'
 
-@Component
+@Component<AppLayout>({
+  created() {
+    this.onAuthChanged()
+  },
+  watch: {
+    isAuthReady() {
+      this.onAuthChanged()
+    },
+    user() {
+      this.onAuthChanged()
+    },
+  },
+})
 export default class AppLayout extends Vue {
   level = ' '
 
@@ -177,24 +189,20 @@ export default class AppLayout extends Vue {
     return ''
   }
 
-  created() {
-    this.onAuthChanged()
-  }
-
   doLogout() {
     this.$fireAuth.signOut()
   }
 
-  @Watch('isAuthReady')
-  @Watch('user')
   async onAuthChanged() {
     if (this.isAuthReady && !this.user) {
       this.$router.push('/')
     }
 
     if (this.user) {
-      const { level = 60 } = await this.$axios.$post('/api/user/', {
-        select: ['level'],
+      const { level = 60 } = await this.$axios.$get('/api/user/', {
+        params: {
+          select: ['level'],
+        },
       })
       this.level = level.toString()
     }
