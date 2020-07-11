@@ -51,6 +51,7 @@ export default (): Configuration => {
      ** https://nuxtjs.org/guide/plugins
      */
     plugins: [
+      '~/plugins/axios-ext.ts',
       '~/plugins/axios-loading.client.ts',
       '~/plugins/codemirror.client.js',
       '~/plugins/filter.ts',
@@ -116,13 +117,6 @@ export default (): Configuration => {
         '@nuxtjs/axios',
         {
           proxy: true,
-          validateStatus: (status: number) => {
-            if (status === 401) {
-              return true
-            }
-
-            return status >= 200 && status < 300 // default
-          },
         },
       ],
       [

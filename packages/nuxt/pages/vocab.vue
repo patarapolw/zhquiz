@@ -297,24 +297,55 @@
 
 <script lang="ts">
 import XRegExp from 'xregexp'
-import { Component, Vue, Watch } from 'nuxt-property-decorator'
+import { Component, Vue } from 'nuxt-property-decorator'
 
 import { speak } from '~/assets/speak'
+import { IDictionaryItem } from '~/types/item'
 
-@Component({
+type ISelectedType = 'vocab' | 'sentence'
+
+interface ISelectedItem {
+  entry: string
+  quizIds: string[]
+}
+
+@Component<VocabPage>({
   layout: 'app',
+  created() {
+    this.q0 = this.q
+    this.onQChange(this.q0)
+  },
+  watch: {
+    q() {
+      this.onQChange()
+    },
+    current() {
+      this.loadContent()
+    },
+    'selected.vocab'() {
+      this.getQuizStatus('vocab')
+    },
+    'selected.sentence'() {
+      this.getQuizStatus('sentence')
+    },
+  },
 })
 export default class VocabPage extends Vue {
-  entries: string[] = []
+  entries: (string | IDictionaryItem)[] = []
   i: number = 0
 
-  sentences: any[] = []
+  sentences: IDictionaryItem[] = []
 
-  selectedVocab = ''
-  selectedSentence = ''
-
-  vocabIds: any = {}
-  sentenceIds: any = {}
+  selected: Record<ISelectedType, ISelectedItem> = {
+    vocab: {
+      entry: '',
+      quizIds: [],
+    },
+    sentence: {
+      entry: '',
+      quizIds: [],
+    },
+  }
 
   speak = speak
 
@@ -330,25 +361,20 @@ export default class VocabPage extends Vue {
   }
 
   get current() {
-    return this.entries[this.i] || ('' as any)
+    return this.entries[this.i] || ''
   }
 
   get simplified() {
-    return typeof this.current === 'string'
-      ? this.current
-      : this.current.simplified
+    return typeof this.current === 'string' ? this.current : this.current.entry
   }
 
-  created() {
-    this.q0 = this.q
-    this.onQChange(this.q0)
-  }
-
-  @Watch('q')
-  async onQChange(q: string) {
+  async onQChange(q = this.q) {
     if (q) {
-      let qs = (await this.$axios.$post('/api/lib/jieba', { q }))
-        .result as string[]
+      let qs = (
+        await this.$axios.$get('/api/chinese/jieba', {
+          params: { q },
+        })
+      ).result as string[]
       qs = qs.filter((h) => XRegExp('\\p{Han}+').test(h))
       this.$set(
         this,
@@ -361,21 +387,25 @@ export default class VocabPage extends Vue {
     this.i = 0
   }
 
-  @Watch('current')
   async loadContent() {
     if (typeof this.current === 'string') {
-      const [{ result: vs }, { result: ss }] = await Promise.all([
-        this.$axios.$post('/api/vocab/match', {
-          q: this.current,
-          select: ['simplified', 'traditional', 'pinyin', 'english'],
+      const [{ result: vs }, { result: ss }] = (await Promise.all([
+        this.$axios.$post('/api/dictionary/match', undefined, {
+          params: {
+            q: this.current,
+            select: ['entry', 'alt', 'reading', 'translation'],
+            type: 'vocab',
+          },
         }),
-        this.$axios.$post('/api/sentence/q', {
+        this.$axios.$post('/api/dictionary/q', {
           q: this.current,
-          select: ['chinese', 'english'],
+          select: ['entry', 'translation'],
+          type: 'sentence',
           limit: 10,
-          hasCount: false,
         }),
-      ])
+      ])) as {
+        result: IDictionaryItem[]
+      }[]
 
       if (vs.length > 0) {
         this.entries = [
@@ -389,60 +419,47 @@ export default class VocabPage extends Vue {
     }
   }
 
-  @Watch('selectedVocab')
-  async loadVocabStatus() {
-    if (this.selectedVocab) {
-      const { result } = await this.$axios.$post('/api/card/q', {
-        cond: { item: this.selectedVocab, type: 'vocab' },
-        hasCount: false,
-        select: ['_id'],
+  async addToQuiz(type: ISelectedType) {
+    const { entry } = this.selected[type]
+
+    if (entry) {
+      await this.$axios.$put('/api/quiz/', undefined, {
+        params: {
+          entry,
+          type,
+        },
       })
-      this.$set(
-        this.vocabIds,
-        this.selectedVocab,
-        result.map((d: any) => d._id)
-      )
+      await this.getQuizStatus(type)
+
+      this.$buefy.snackbar.open(`Added ${type}: ${entry} to quiz`)
     }
   }
 
-  @Watch('selectedSentence')
-  async loadSentenceStatus() {
-    if (this.selectedSentence) {
-      const { result } = await this.$axios.$post('/api/card/q', {
-        cond: { item: this.selectedSentence, type: 'sentence' },
-        hasCount: false,
-        select: ['_id'],
+  async removeFromQuiz(type: ISelectedType) {
+    const { entry, quizIds } = this.selected[type]
+
+    if (entry && quizIds.length) {
+      await this.$axios.$delete('/api/quiz/', {
+        params: {
+          id: quizIds,
+        },
       })
-      this.$set(
-        this.sentenceIds,
-        this.selectedSentence,
-        result.map((d: any) => d._id)
-      )
+      await this.getQuizStatus(type)
+
+      this.$buefy.snackbar.open(`Removed ${type}: ${entry} to quiz`)
     }
   }
 
-  async addToQuiz(item: string, type: string) {
-    await this.$axios.$put('/api/card/', {
-      create: { item, type },
-    })
-    this.$buefy.snackbar.open(`Added ${type}: ${item} to quiz`)
+  async getQuizStatus(type: ISelectedType) {
+    const { entry } = this.selected[type]
 
-    type === 'vocab' ? this.loadVocabStatus() : this.loadSentenceStatus()
-  }
-
-  async removeFromQuiz(item: string, type: string) {
-    const id = type === 'vocab' ? this.vocabIds[item] : this.sentenceIds[item]
-
-    if (id) {
-      await this.$axios.$delete('/api/card/', {
-        data: { id },
+    if (entry) {
+      const { ids } = await this.$axios.$delete('/api/quiz/ids', {
+        params: {
+          q: entry,
+        },
       })
-    }
-
-    this.$buefy.snackbar.open(`Removed ${type}: ${item} from quiz`)
-
-    if (id) {
-      type === 'vocab' ? this.loadVocabStatus() : this.loadSentenceStatus()
+      this.selected[type].quizIds = ids
     }
   }
 }
