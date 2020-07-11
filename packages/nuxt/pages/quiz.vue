@@ -144,7 +144,7 @@
             <div class="column is-3">
               <div v-if="!isDue">
                 <span class="column-label">Pending: </span>
-                <span>{{ data.length | format }}</span>
+                <span>{{ quizArray.length | format }}</span>
               </div>
               <div v-else-if="dueItems.length">
                 <span class="column-label">Due: </span>
@@ -171,7 +171,7 @@
               <div class="flex-grow" />
               <b-button
                 type="is-success"
-                :disabled="data.length === 0"
+                :disabled="quizArray.length === 0"
                 @click="startQuiz"
               >
                 Start Quiz
@@ -197,31 +197,22 @@
         </div>
         <div class="card-content">
           <b-table
-            :data="data"
+            :data="tablePagedData"
             paginated
-            :per-page="10"
-            checkable
+            backend-pagination
+            :total="tableAllData.length"
+            :per-page="perPage"
+            :current-page.sync="page"
             @contextmenu="onTableContextmenu"
           >
             <template slot-scope="props">
-              <b-table-column
-                field="type"
-                label="Type"
-                width="100"
-                searchable
-                sortable
-              >
+              <b-table-column field="type" label="Type" width="100" sortable>
                 {{ props.row.type }}
               </b-table-column>
-              <b-table-column field="item" label="Item" searchable sortable>
-                {{ props.row.item }}
+              <b-table-column field="entry" label="Entry" searchable sortable>
+                {{ props.row.entry }}
               </b-table-column>
-              <b-table-column
-                field="direction"
-                label="Direction"
-                searchable
-                sortable
-              >
+              <b-table-column field="direction" label="Direction" sortable>
                 <span v-if="props.row.direction === 'ec'">English-Chinese</span>
                 <span v-else-if="props.row.direction === 'te'">
                   Traditional-English
@@ -234,20 +225,10 @@
               <b-table-column field="tag" label="Tag" searchable>
                 <b-tag v-for="t in props.row.tag || []" :key="t">{{ t }}</b-tag>
               </b-table-column>
-              <b-table-column
-                field="srsLevel"
-                label="SRS Level"
-                searchable
-                sortable
-              >
+              <b-table-column field="srsLevel" label="SRS Level" sortable>
                 {{ props.row.srsLevel }}
               </b-table-column>
-              <b-table-column
-                field="nextReview"
-                label="Next Review"
-                searchable
-                sortable
-              >
+              <b-table-column field="nextReview" label="Next Review" sortable>
                 {{ props.row.nextReview | formatDate }}
               </b-table-column>
             </template>
@@ -357,14 +338,8 @@
                 <button
                   ref="btnEditModal"
                   class="button is-info"
-                  @click="
-                    editItem = quizCurrent
-                    isEditModal = true
-                  "
-                  @keypress="
-                    editItem = quizCurrent
-                    isEditModal = true
-                  "
+                  @click="openEditModal(quizCurrentId)"
+                  @keypress="openEditModal(quizCurrentId)"
                 >
                   Edit
                 </button>
@@ -381,21 +356,21 @@
               <b-tab-item label="Front">
                 <MarkdownEditor
                   ref="mde0"
-                  v-model="editItem.front"
+                  v-model="quizEditorData.front"
                   :renderer="previewRender"
                 />
               </b-tab-item>
               <b-tab-item label="Back">
                 <MarkdownEditor
                   ref="mde1"
-                  v-model="editItem.back"
+                  v-model="quizEditorData.back"
                   :renderer="previewRender"
                 />
               </b-tab-item>
               <b-tab-item label="Mnemonic">
                 <MarkdownEditor
                   ref="mde2"
-                  v-model="editItem.mnemonic"
+                  v-model="quizEditorData.mnemonic"
                   :renderer="previewRender"
                 />
               </b-tab-item>
@@ -414,8 +389,8 @@
               </button>
               <button
                 class="button is-danger"
-                @click="doEditLoad"
-                @keypress="doEditLoad"
+                @click="openEditModal(quizEditorData._id)"
+                @keypress="openEditModal(quizEditorData._id)"
               >
                 Reset
               </button>
@@ -438,8 +413,8 @@
           <li>
             <a
               role="button"
-              @click.prevent="speak(selectedRow.item)"
-              @keypress.prevent="speak(selectedRow.item)"
+              @click.prevent="speak(selectedRow.entry)"
+              @keypress.prevent="speak(selectedRow.entry)"
             >
               Speak
             </a>
@@ -456,14 +431,8 @@
           <li>
             <a
               role="button"
-              @click.prevent="
-                editItem = selectedRow
-                isEditModal = true
-              "
-              @keypress.prevent="
-                editItem = selectedRow
-                isEditModal = true
-              "
+              @click.prevent="openEditModal(selectedRow.quizId)"
+              @keypress.prevent="openEditModal(selectedRow.quizId)"
             >
               Edit item
             </a>
@@ -484,28 +453,92 @@
 </template>
 
 <script lang="ts">
-import { Component, Vue, Watch } from 'nuxt-property-decorator'
+import { Component, Vue } from 'nuxt-property-decorator'
 
-import cardDefault from '~/assets/card-default.yaml'
 import { doClick, doMapKeypress } from '~/assets/keypress'
 import { markdownToHtml } from '~/assets/make-html'
 import { speak } from '~/assets/speak'
+import { IDictionaryItem } from '~/assets/types/item'
 
-interface IQuizData {
-  type: string
-  item: string
-  raw: any
-  cards: {
-    _id: string
-    direction: string
-    front: string
-    back: string
-    mnemonic: string
-  }[]
+type IDictionaryType = 'hanzi' | 'vocab' | 'sentence'
+
+interface ITemplate {
+  _id: string
+  type: IDictionaryType
+  front: string
+  back?: string
+  _meta?: {
+    direction?: string
+  }
 }
 
-@Component({
+interface IQuizData {
+  _id: string
+  srsLevel?: number
+  nextReview?: string
+  stat?: any
+  entry?: string
+  templateId?: string
+  front?: string
+  back?: string
+  mnemonic?: string
+  _meta?: {
+    tag?: string[]
+  }
+}
+
+interface ITableRow {
+  quizId: string
+  templateId?: string
+  type?: string
+  entry?: string
+  direction?: string
+  tag: string[]
+  srsLevel?: number
+  nextReview?: string
+}
+
+@Component<QuizPage>({
   layout: 'app',
+  created() {
+    this.init().then(() => {
+      this.isQuizDashboardReady = true
+    })
+  },
+  beforeDestroy() {
+    window.onkeypress = null
+  },
+  watch: {
+    type: {
+      deep: true,
+      handler() {
+        this.reload()
+      },
+    },
+    stage: {
+      deep: true,
+      handler() {
+        this.reload()
+      },
+    },
+    direction: {
+      deep: true,
+      handler() {
+        this.reload()
+      },
+    },
+    isDue() {
+      this.reload()
+    },
+    isTableShown() {
+      if (this.isTableShown) {
+        this.updateTable()
+      }
+    },
+    page() {
+      this.updateTable()
+    },
+  },
 })
 export default class QuizPage extends Vue {
   isLoading = false
@@ -516,53 +549,67 @@ export default class QuizPage extends Vue {
   filteredTags: string[] = []
   allTags: string[] = []
 
-  type = ['hanzi', 'vocab', 'sentence', 'extra']
+  type: (IDictionaryType | 'extra')[] = ['hanzi', 'vocab', 'sentence', 'extra']
   stage = ['new', 'leech', 'learning']
   direction = ['se']
   isDue = true
 
   dueIn: Date | null = null
-  data: any[] = []
+
+  tablePagedData: ITableRow[] = []
+
+  perPage = 10
+  page = 1
   isTableShown = false
 
-  selectedRow = {} as any
+  selectedRow: ITableRow | null = null
   isEditTagModal = false
 
   isQuizModal = false
-  quizItems: any[] = []
+  quizArray: string[] = []
   quizIndex = 0
   isQuizShownAnswer = false
   isQuizItemReady = false
-
-  quizFront = ''
-  quizBack = ''
-  quizMnemonic = ''
-  quizData: IQuizData[] = []
-  quizCurrentData: any = null
-
-  isEditModal = false
-  editItem = {
+  quizEditorData = {
     _id: '',
     front: '',
     back: '',
     mnemonic: '',
-    type: '',
-    item: '',
-    direction: '',
   }
 
-  speak = speak
+  quizData: {
+    [quizId: string]: IQuizData
+  } = {}
 
-  get email() {
-    const u = this.$store.state.user
-    return u ? (u.email as string) : undefined
+  templateData: {
+    [templateId: string]: ITemplate
+  } = {}
+
+  dictionaryData: Record<
+    IDictionaryType,
+    {
+      [entry: string]: IDictionaryItem
+    }
+  > = {
+    hanzi: {},
+    vocab: {},
+    sentence: {},
+  }
+
+  isEditModal = false
+
+  cache: {
+    now: number
+  } = {
+    now: +new Date(),
   }
 
   get backlogItems() {
-    const now = +new Date()
-    return this.data.filter(
-      (d) => d.nextReview && +new Date(d.nextReview) < now
-    )
+    this.cache.now = +new Date()
+    return this.quizArray.filter((id) => {
+      const d = this.quizData[id]
+      return d && this._isBacklogSeverity
+    })
   }
 
   get dueItems() {
@@ -570,259 +617,194 @@ export default class QuizPage extends Vue {
   }
 
   get newItems() {
-    return this.data.filter((d) => typeof d.srsLevel === 'undefined')
+    return this.quizArray.filter((id) => {
+      const d = this.quizData[id]
+      return d && typeof d.srsLevel === 'undefined'
+    })
   }
 
   get leechItems() {
-    return this.data.filter((d) => {
-      const { wrong } = (d.stat || {}).streak || {}
-      if (wrong) return wrong >= 3
-
-      return false
+    return this.quizArray.filter((id) => {
+      const d = this.quizData[id]
+      return d && this._isLeechSeverity(d)
     })
   }
 
-  get quizCurrent() {
-    return this.quizItems[this.quizIndex]
+  /**
+   * Between 0 - 1
+   */
+  _isSeverity(s: number) {
+    if (s > 1 || s <= 0) {
+      throw new Error('Cannot compare severity')
+    }
+
+    return s
   }
 
-  async created() {
-    await this.onUserChange()
-    this.isQuizDashboardReady = true
+  _isBacklogSeverity(d: IQuizData) {
+    if (!d.nextReview) {
+      return 0
+    }
+
+    const s = (this.cache.now - +new Date(d.nextReview)) / this.cache.now
+    if (s > 0) {
+      return this._isSeverity(s)
+    }
+
+    return 0
   }
 
-  beforeDestroy() {
-    window.onkeypress = null
+  _isLeechSeverity(d: IQuizData) {
+    const { wrong } = (d.stat || {}).streak || {}
+    if (typeof wrong === 'number' && wrong >= 3)
+      return this._isSeverity(wrong / 10)
+
+    return null
+  }
+
+  get quizCurrentId() {
+    return this.quizArray[this.quizIndex] as string | undefined
+  }
+
+  get tableAllData() {
+    this.cache.now = +new Date()
+
+    return Object.values(this.quizData).sort((a, b) => {
+      const s = [a, b].map((el) => {
+        const s1 = this._isLeechSeverity(el)
+        if (s1) return s1 + 5
+
+        const s2 = this._isBacklogSeverity(el)
+        if (s2) return s2 + 3
+
+        return 0
+      })
+
+      return s[1] - s[0]
+    })
+  }
+
+  renderContext(entry: string, templateId: string) {
+    const t = this.templateData[templateId]
+    if (!t) {
+      return null
+    }
+
+    const data = this.dictionaryData[t.type][entry]
+
+    if (t.type === 'vocab') {
+      const sentences = this.dictionaryData.sentence[entry]
+      if (data && sentences) {
+        return { data, sentences }
+      } else {
+        return null
+      }
+    }
+
+    return data ? { data } : null
   }
 
   previewRender(md: string) {
-    const { type, item } = this.editItem
-    const { raw } =
-      this.quizData.filter((d) => {
-        return d.type === type && d.item === item
-      })[0] || {}
+    const { _id: quizId } = this.quizEditorData
+    if (quizId) {
+      const { entry, templateId } = this.quizData[quizId] || {}
+      const ctx =
+        entry && templateId ? this.renderContext(entry, templateId) : null
 
-    return markdownToHtml(md, {
-      ...this.editItem,
-      raw,
+      return markdownToHtml(md, {
+        entry,
+        ...(ctx || {}),
+      })
+    }
+
+    return md
+  }
+
+  templateRender(side: 'front' | 'back', relativePosition = 0) {
+    const it = this.quizData[this.quizIndex + relativePosition]
+
+    if (!it) {
+      return ''
+    }
+
+    const { entry, templateId } = it
+
+    if (!entry || !templateId) {
+      return ''
+    }
+
+    const md = (this.templateData[templateId] || {})[side] || ''
+    const ctx = this.renderContext(entry, templateId)
+
+    const html = markdownToHtml(md, {
+      entry,
+      ...(ctx || {}),
     })
+
+    it[side] = html
+    this.$set(this, 'quizData', this.quizData)
+
+    return html
   }
 
-  getQuizFront() {
-    let template = ''
-
-    if (this.quizCurrent) {
-      const { type, item, direction } = this.quizCurrent
-      const { raw = null, cards = [] } =
-        this.quizData.filter((d) => {
-          return d.type === type && d.item === item
-        })[0] || {}
-
-      this.quizCurrentData = raw
-
-      const { front } =
-        cards.filter((c) => {
-          return c.direction === direction
-        })[0] || {}
-
-      template = front || cardDefault[type][direction].front || ''
-
-      return markdownToHtml(template, {
-        ...this.quizCurrent,
-        raw: this.quizCurrentData,
-      })
-    }
-
-    return ''
-  }
-
-  getQuizBack() {
-    let template = ''
-
-    if (this.quizCurrent) {
-      const { type, item, direction } = this.quizCurrent
-      const { raw = null, cards = [] } =
-        this.quizData.filter((d) => {
-          return d.type === type && d.item === item
-        })[0] || {}
-
-      this.quizCurrentData = raw
-
-      const { back } =
-        cards.filter((c) => {
-          return c.direction === direction
-        })[0] || {}
-
-      template = back || cardDefault[type][direction].back || ''
-
-      return markdownToHtml(template, {
-        ...this.quizCurrent,
-        raw: this.quizCurrentData,
-      })
-    }
-
-    return ''
-  }
-
-  @Watch('email')
-  async onUserChange() {
-    if (this.email) {
-      await Promise.all([
-        (async () => {
-          const {
-            settings: {
-              quiz: { type, stage, direction, isDue } = {} as any,
-            } = {},
-          } = await this.$axios.$post('/api/user/', {
-            select: ['settings.quiz'],
-          })
-
-          if (type) {
-            this.$set(this, 'type', type)
-          }
-
-          if (stage) {
-            this.$set(this, 'stage', stage)
-          }
-
-          if (direction) {
-            this.$set(this, 'direction', direction)
-          }
-
-          if (typeof isDue !== 'undefined') {
-            this.$set(this, 'isDue', isDue)
-          }
-          // eslint-disable-next-line no-console
-        })().catch(console.error),
-        (async () => {
-          const { result } = await this.$axios.$post('/api/card/q', {
-            select: ['tag'],
-            limit: null,
-            hasCount: false,
-          })
-
-          this.allTags = Array.from(
-            new Set<string>(
-              (result as any[]).reduce(
-                (prev, { tag = [] }: { tag: string[] }) => {
-                  return [...prev, ...tag]
-                },
-                [] as string[]
-              )
-            )
-          ).sort()
-
-          // eslint-disable-next-line no-console
-        })().catch(console.error),
-      ])
-
-      this.isInit = true
-      this.isLoading = false
-
-      this.data = []
-      await this.load()
-    }
-  }
-
-  @Watch('type')
-  @Watch('stage')
-  @Watch('direction')
-  @Watch('isDue')
-  async load(opts?: { _dueIn: boolean }) {
-    let nextReview = undefined as any
-
-    if (opts && opts._dueIn) {
-      nextReview = { $exists: true }
-    } else {
-      this.$axios.$patch('/api/user/', {
-        set: {
-          'settings.quiz.type': this.type,
-          'settings.quiz.stage': this.stage,
-          'settings.quiz.direction': this.direction,
-          'settings.quiz.isDue': this.isDue,
-        },
-      })
-    }
-
-    const cond: any = {
-      tag: this.selectedTags,
-      type: { $in: this.type },
-      direction: { $in: this.direction },
-      nextReview,
-    }
-
-    const $or: any[] = []
-
-    if (this.stage.includes('new')) {
-      $or.push({
-        nextReview: { $exists: false },
-      })
-    }
-
-    if (this.stage.includes('leech')) {
-      $or.push({
-        'stat.streak.wrong': { $gte: 3 },
-      })
-    }
-
-    if (this.stage.includes('learning')) {
-      $or.push({
-        srsLevel: { $lt: 3 },
-      })
-    }
-
-    if (this.stage.includes('graduated')) {
-      $or.push({
-        srsLevel: { $gte: 3 },
-      })
-    }
-
-    let data = []
-
-    if ($or.length > 0) {
-      const $and = [cond, { $or }]
-
-      if (this.isDue) {
-        $and.push({
-          $or: [
-            { nextReview: { $lt: { $toDate: new Date().toISOString() } } },
-            { nextReview: { $exists: false } },
-          ],
+  async init() {
+    await Promise.all([
+      (async () => {
+        const {
+          settings: {
+            quiz: { type, stage, direction, isDue } = {} as any,
+          } = {},
+        } = await this.$axios.$get('/api/user/', {
+          params: {
+            select: 'settings.quiz',
+          },
         })
+
+        if (type) {
+          this.$set(this, 'type', type)
+        }
+
+        if (stage) {
+          this.$set(this, 'stage', stage)
+        }
+
+        if (direction) {
+          this.$set(this, 'direction', direction)
+        }
+
+        if (typeof isDue !== 'undefined') {
+          this.$set(this, 'isDue', isDue)
+        }
+        // eslint-disable-next-line no-console
+      })().catch(console.error),
+      (async () => {
+        const { result } = await this.$axios.$get('/api/quiz/tag/all')
+        this.allTags = result
+
+        // eslint-disable-next-line no-console
+      })().catch(console.error),
+    ])
+
+    this.isInit = true
+    this.isLoading = false
+
+    await this.reload()
+  }
+
+  async reload() {
+    const { quiz, upcoming: [dueIn] = [] as string[] } = await this.$axios.$get(
+      '/api/quiz/init',
+      {
+        params: {
+          type: this.type,
+        },
       }
+    )
 
-      const { result } = await this.$axios.$post('/api/card/q', {
-        cond: { $and },
-        join: ['quiz'],
-        select:
-          opts && opts._dueIn
-            ? ['nextReview']
-            : [
-                '_id',
-                'type',
-                'item',
-                'direction',
-                'tag',
-                'srsLevel',
-                'nextReview',
-                'stat',
-              ],
-        limit: opts && opts._dueIn ? 1 : null,
-        sort: opts && opts._dueIn ? [['nextReview', 1]] : undefined,
-        hasCount: false,
-      })
+    this.quizData = quiz
+    this.$set(this, 'quizData', this.quizData)
 
-      data = result
-    }
-
-    if (opts && opts._dueIn) {
-      return data
-    }
-
-    this.$set(this, 'data', data)
-    this.getDueIn()
-
-    return data
+    this.dueIn = dueIn ? new Date(dueIn) : null
   }
 
   getFilteredTags(text: string) {
@@ -835,36 +817,57 @@ export default class QuizPage extends Vue {
     evt.preventDefault()
 
     this.selectedRow = row
-    const contextmenu = this.$refs.contextmenu as any
-    contextmenu.open(evt)
+    ;(this.$refs.contextmenu as any).open(evt)
   }
 
   removeItem() {
-    this.$buefy.dialog.confirm({
-      message: 'Are you sure you want to remove this item?',
-      confirmText: 'Remove',
-      type: 'is-danger',
-      hasIcon: true,
-      onConfirm: async () => {
-        await this.$axios.$delete('/api/card/', {
-          data: {
-            id: this.selectedRow._id,
-          },
-        })
-        this.data = this.data.filter((d) => d._id !== this.selectedRow._id)
-      },
-    })
+    const { quizId } = this.selectedRow || {}
+
+    if (quizId) {
+      this.$buefy.dialog.confirm({
+        message: 'Are you sure you want to remove this item?',
+        confirmText: 'Remove',
+        type: 'is-danger',
+        hasIcon: true,
+        onConfirm: async () => {
+          await this.$axios.$delete('/api/quiz/', {
+            data: {
+              id: quizId,
+            },
+          })
+
+          delete this.quizData[quizId]
+          this.$set(this, 'quizData', this.quizData)
+        },
+      })
+    }
   }
 
   async onEditTagModelClose() {
-    await this.$axios.$patch('/api/card/', {
-      id: this.selectedRow._id,
-      set: this.selectedRow.tag,
-    })
+    if (!this.selectedRow) {
+      return
+    }
+
+    const { quizId, tag } = this.selectedRow
+
+    await this.$axios.$patch(
+      '/api/quiz/tag',
+      {
+        tag,
+      },
+      {
+        params: {
+          id: quizId,
+        },
+      }
+    )
+
+    if (this.quizData[quizId]) {
+      this.$set(this.quizData[quizId], '_meta.tag', tag)
+    }
   }
 
   async startQuiz() {
-    this.quizItems = this.data.sort(() => 0.5 - Math.random())
     this.quizIndex = -1
     await this.initNextQuizItem()
 
@@ -875,138 +878,151 @@ export default class QuizPage extends Vue {
   endQuiz() {
     window.onkeypress = null
     this.isQuizModal = false
-    this.load()
+    this.reload()
   }
 
   async initNextQuizItem() {
     this.quizIndex++
     this.isQuizShownAnswer = false
 
-    this.quizFront = this.getQuizFront()
-    this.quizBack = this.getQuizBack()
-
     Array(2)
       .fill(null)
       .map((_, i) => {
-        const it = this.quizItems[this.quizIndex + i + 1]
-        if (it) {
-          this.cacheQuizItem(it, true)
+        const front = this.templateRender('front', i + 1)
+        // const back = this.templateRender('back', i + 1)
+
+        if (!front) {
+          this.cacheQuizItem({
+            relativePosition: i + 1,
+          })
         }
       })
 
-    if (this.quizCurrent) {
-      await this.cacheQuizItem(this.quizCurrent)
+    if (this.quizCurrentId) {
+      await this.cacheQuizItem({ relativePosition: 0 })
 
-      this.quizFront = this.getQuizFront()
-      this.quizBack = this.getQuizBack()
+      this.templateRender('front')
+      this.templateRender('back')
     }
   }
 
-  async cacheQuizItem(target: any, isFuture?: boolean) {
-    const { type, item, _id, direction } = target
-    let data = this.quizData.filter((d) => {
-      return d.item === item && d.type === type
-    })[0]
+  async cacheQuizItem(params: { quizId?: string; relativePosition?: number }) {
+    const { relativePosition = 0 } = params
+    let { quizId } = params
+    quizId = quizId || this.quizArray[this.quizIndex + relativePosition]
 
-    if (!data) {
-      if (!isFuture && direction !== 'se') {
-        this.isQuizItemReady = false
-      }
-
-      let raw = {} as any
-
-      if (type === 'vocab') {
-        const [{ result: vs }, { result: ss }] = await Promise.all([
-          this.$axios.$post('/api/vocab/match', {
-            q: item,
-            select: ['simplified', 'traditional', 'pinyin', 'english'],
-          }),
-          this.$axios.$post('/api/sentence/q', {
-            q: item,
-            select: ['chinese', 'english'],
-            limit: 10,
-            hasCount: false,
-          }),
-        ])
-        const simplified = vs[0].simplified
-        const u = (k: string) => {
-          const arr = (vs as any[])
-            .map((v) => (v as any)[k] as string)
-            .filter((t) => t)
-            .filter((t, i, arr) => arr.indexOf(t) === i)
-          return arr.length > 0 ? arr : undefined
-        }
-
-        raw = {
-          simplified,
-          traditional: u('traditional'),
-          pinyin: u('pinyin')!,
-          english: u('english'),
-          sentences: ss,
-        }
-      } else {
-        const { result } = await this.$axios.$post(`/api/${type}/match`, {
-          q: item,
-          select: ['entry', 'chinese', 'pinyin', 'english'],
-        })
-        raw = result
-      }
-
-      data = {
-        type,
-        item,
-        raw,
-        cards: [],
-      }
-
-      this.quizData.push(data)
+    if (!quizId) {
+      return
     }
 
-    let card = data.cards.filter((c) => c._id === _id)[0]
-    if (!card) {
-      card = await this.$axios.$post('/api/quiz/', {
-        id: _id,
-        select: ['_id', 'direction', 'front', 'back', 'mnemonic'],
+    let q = this.quizData[quizId]
+    if (!q || !q.templateId || !q.entry) {
+      q = await this.$axios.$get('/api/quiz/', {
+        params: {
+          id: quizId,
+          select: ['entry', 'templateId', 'front', 'back', 'mnemonic'],
+        },
       })
-      data.cards.push(card)
+      q._id = quizId
+      q.templateId = q.templateId as string
+      q.entry = q.entry as string
+
+      this.$set(this.quizData, quizId, q)
     }
 
-    this.$set(this, 'quizData', this.quizData)
+    let t = this.templateData[q.templateId]
+    if (!t) {
+      t = await this.$axios.$get('/api/quiz/template', {
+        params: {
+          id: q.templateId,
+          select: ['type', 'front', 'back', 'mnemonic'],
+        },
+      })
+      t._id = q.templateId
+
+      this.$set(this.templateData, q.templateId, t)
+    }
+
+    let data = this.dictionaryData[t.type][q.entry]
+    if (!data || !data.reading) {
+      data = await this.$axios.$get('/api/dictionary/', {
+        params: {
+          q: q.entry,
+          select: ['entry', 'alt', 'reading', 'translation'],
+        },
+      })
+
+      this.$set(this.dictionaryData[t.type], q.entry, data)
+    }
+
+    if (t.type === 'vocab') {
+      let sentences = Object.entries(this.dictionaryData.sentence)
+        .filter(([entry]) => entry.includes(q.entry!))
+        .map(([, content]) => content)
+        .sort(() => 0.5 - Math.random())
+        .slice(0, 10)
+
+      if (sentences.length < 10) {
+        sentences = (
+          await this.$axios.$get('/api/dictionary/q', {
+            params: {
+              q: q.entry,
+              select: ['entry', 'translation'],
+            },
+          })
+        ).result
+
+        sentences.map((content) => {
+          this.dictionaryData.sentence[content.entry] = content
+          this.$set(this.dictionaryData.sentence, content.entry, content)
+        })
+      }
+    }
+
     this.isQuizItemReady = true
   }
 
   async markRight() {
-    this.isQuizItemReady = false
-
-    await this.$axios.$patch('/api/quiz/right', { id: this.quizCurrent._id })
-
-    this.isQuizItemReady = true
+    if (this.quizCurrentId) {
+      this.isQuizItemReady = false
+      await this.$axios.$patch('/api/quiz/right', undefined, {
+        params: { id: this.quizCurrentId },
+      })
+      this.isQuizItemReady = true
+    }
     this.initNextQuizItem()
   }
 
   async markWrong() {
-    this.isQuizItemReady = false
-
-    await this.$axios.$patch('/api/quiz/wrong', { id: this.quizCurrent._id })
-
-    this.isQuizItemReady = true
+    if (this.quizCurrentId) {
+      this.isQuizItemReady = false
+      await this.$axios.$patch('/api/quiz/wrong', undefined, {
+        params: { id: this.quizCurrentId },
+      })
+      this.isQuizItemReady = true
+    }
     this.initNextQuizItem()
   }
 
   async markRepeat() {
-    this.isQuizItemReady = false
-
-    await this.$axios.$patch('/api/quiz/repeat', { id: this.quizCurrent._id })
-
-    this.isQuizItemReady = true
+    if (this.quizCurrentId) {
+      this.isQuizItemReady = false
+      await this.$axios.$patch('/api/quiz/repeat', undefined, {
+        params: { id: this.quizCurrentId },
+      })
+      this.isQuizItemReady = true
+    }
     this.initNextQuizItem()
   }
 
   async doEditSave() {
-    const { front, back, mnemonic, type, item, direction } = this.editItem
+    const { _id, front, back, mnemonic } = this.quizEditorData
+    if (!_id) {
+      return
+    }
 
     await this.$axios.$patch('/api/card/', {
-      id: this.editItem._id,
+      id: _id,
       set: {
         front,
         back,
@@ -1014,64 +1030,39 @@ export default class QuizPage extends Vue {
       },
     })
 
-    const { cards = [] } =
-      this.quizData.filter((d) => {
-        return d.type === type && d.item === item
-      })[0] || {}
-
-    const card = cards.filter((c) => {
-      return c.direction === direction
-    })[0]
-
-    if (!card) {
-      cards.push(this.editItem)
-    } else {
-      Object.assign(card, this.editItem)
+    this.quizData[_id] = {
+      _id,
+      ...this.quizEditorData,
     }
-    this.doEditLoad()
+    this.cacheQuizItem({ relativePosition: 0 })
 
     this.$buefy.snackbar.open('Saved')
   }
 
-  @Watch('isEditModal')
-  async doEditLoad() {
-    if (this.isEditModal) {
-      await this.cacheQuizItem(this.editItem)
+  async openEditModal(quizId?: string) {
+    quizId = quizId || this.quizCurrentId
 
-      const { type, item, direction } = this.editItem
-      const { cards = [] } =
-        this.quizData.filter((d) => {
-          return d.type === type && d.item === item
-        })[0] || {}
+    this.quizEditorData._id = quizId || ''
+    this.quizEditorData.front = ''
+    this.quizEditorData.back = ''
+    this.quizEditorData.mnemonic = ''
 
-      const { front, back, mnemonic } =
-        cards.filter((c) => {
-          return c.direction === direction
-        })[0] || {}
-
-      this.editItem.front = front || cardDefault[type][direction].front || ''
-      this.editItem.back = back || cardDefault[type][direction].back || ''
-      this.editItem.mnemonic = mnemonic || ''
-
-      // this.$set(this, 'editItem', this.editItem)
-      this.$forceUpdate()
+    if (quizId) {
+      const quizData = this.quizData[quizId]
+      if (quizData) {
+        this.quizEditorData.front = quizData.front || ''
+        this.quizEditorData.back = quizData.back || ''
+        this.quizEditorData.mnemonic = quizData.mnemonic || ''
+      }
     }
+
+    this.isEditModal = true
   }
 
   onEditTabChange(i: number) {
     this.$nextTick(() => {
       ;(this.$refs[`mde${i}`] as any).codemirror.refresh()
     })
-  }
-
-  async getDueIn() {
-    if (this.dueItems.length > 0) {
-      this.dueIn = null
-      return
-    }
-
-    const it = (await this.load({ _dueIn: true }))[0]
-    this.dueIn = it ? it.nextReview : null
   }
 
   onQuizKeypress(evt: KeyboardEvent) {
@@ -1090,7 +1081,7 @@ export default class QuizPage extends Vue {
       return
     }
 
-    if (!this.quizCurrent) {
+    if (!this.quizCurrentId) {
       doMapKeypress(evt, {
         ' ': this.$refs.btnEndQuiz as HTMLButtonElement,
       })
@@ -1129,6 +1120,107 @@ export default class QuizPage extends Vue {
         ';': () => speakItemN(7),
         "'": () => speakItemN(8),
       })
+    }
+  }
+
+  async speak(s: string) {
+    if (s) {
+      await speak(s)
+    }
+  }
+
+  async updateTable() {
+    const doLoad = () => {
+      this.tablePagedData = this.tableAllData
+        .slice((this.page - 1) * this.perPage, this.page * this.perPage)
+        .map((q) => {
+          const t = q.templateId ? this.templateData[q.templateId] : null
+
+          return {
+            quizId: q._id,
+            templateId: t?._id,
+            type: t?.type,
+            entry: q.entry,
+            direction: t?._meta?.direction,
+            tag: q._meta?.tag || [],
+            srsLevel: q.srsLevel,
+            nextReview: q.nextReview,
+          }
+        })
+      this.$set(this, 'tablePagedData', this.tablePagedData)
+    }
+
+    doLoad()
+
+    if (this.tablePagedData.length > 0) {
+      const getQuizMeta = async (quizIds: string[]) => {
+        quizIds = quizIds.filter(
+          (id) => this.quizData[id] && !this.quizData[id]._meta
+        )
+
+        const { result } = (await this.$axios.$get('/api/quiz', {
+          params: {
+            id: quizIds,
+            select: ['_id', 'tag'],
+            limit: quizIds.length,
+          },
+        })) as {
+          result: {
+            _id: string
+            tag?: string[]
+          }[]
+        }
+
+        result.map(({ _id, ..._meta }) => {
+          if (this.quizData[_id]) {
+            this.quizData[_id]._meta = _meta
+            this.$set(this.quizData[_id], '_meta', _meta)
+          }
+        })
+      }
+
+      const getTemplateMeta = async (templateIds: string[]) => {
+        templateIds = templateIds.filter(
+          (id) => this.templateData[id] && !this.templateData[id]._meta
+        )
+
+        const { result } = (await this.$axios.$get('/api/template', {
+          params: {
+            id: templateIds,
+            select: ['_id', 'direction'],
+            limit: templateIds.length,
+          },
+        })) as {
+          result: {
+            _id: string
+            direction?: string
+          }[]
+        }
+
+        result.map(({ _id, ..._meta }) => {
+          if (this.templateData[_id]) {
+            this.templateData[_id]._meta = _meta
+            this.$set(this.templateData[_id], '_meta', _meta)
+          }
+        })
+      }
+
+      await Promise.all([
+        Promise.all(
+          this.tablePagedData.map(({ quizId }) =>
+            this.cacheQuizItem({ quizId })
+          )
+        ).then(() =>
+          getTemplateMeta(
+            this.tablePagedData
+              .map(({ templateId }) => templateId!)
+              .filter((id) => id)
+          )
+        ),
+        getQuizMeta(this.tablePagedData.map(({ quizId }) => quizId)),
+      ])
+
+      doLoad()
     }
   }
 }
