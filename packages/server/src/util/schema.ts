@@ -3,7 +3,9 @@ import S, { BaseSchema } from 'jsonschema-definer'
 import { srsMap } from '@/db/quiz'
 
 export const sStringNonEmpty = S.string().pattern(/[^\s]/)
-export const sListStringNonEmpty = S.list(S.string()).minItems(1)
+export const sListStringNonEmpty = S.list(sStringNonEmpty).minItems(1)
+export const sMaybeList = (it: BaseSchema) =>
+  S.anyOf(it, S.list(it).minItems(1))
 export const sDateTime = S.anyOf(
   S.object().custom((o) => o instanceof Date),
   S.string().format('date-time')

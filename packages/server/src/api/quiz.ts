@@ -10,6 +10,8 @@ import {
   DbCategoryModel,
   DbQuizModel,
   DbUserModel,
+  sDbQuizExportPartial,
+  sDbQuizExportSelect,
   sQuizStat,
 } from '@/db/mongo'
 import { arrayize, reduceToObj } from '@/util'
@@ -20,28 +22,13 @@ import {
   sDictionaryType,
   sId,
   sListStringNonEmpty,
+  sMaybeList,
   sSrsLevel,
   sStringNonEmpty,
 } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['quiz']
-  const mySelect = S.string().enum(
-    '_id',
-    'direction',
-    'front',
-    'back',
-    'mnemonic',
-    'srsLevel'
-  )
-  const myQuizItemPartial = S.shape({
-    _id: S.string().optional(),
-    direction: S.string().optional(),
-    front: S.string().optional(),
-    back: S.string().optional(),
-    mnemonic: S.string().optional(),
-    srsLevel: S.integer().optional(),
-  })
 
   getById()
   postGetByIds()
@@ -60,10 +47,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getById() {
     const sQuery = S.shape({
       id: sId,
-      select: S.anyOf(mySelect, S.list(mySelect)).optional(),
+      select: sMaybeList(sDbQuizExportSelect),
     })
 
-    const sResponse = myQuizItemPartial
+    const sResponse = sDbQuizExportPartial
 
     f.get<typeof sQuery.type>(
       '/',
@@ -85,7 +72,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { id, select = ['front', 'back', 'mnemonic'] } = req.query
+        const { id, select } = req.query
         const r =
           (await DbQuizModel.findOne({
             _id: id,
@@ -105,11 +92,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function postGetByIds() {
     const sBody = S.shape({
       ids: S.list(sId),
-      select: S.list(mySelect),
+      select: S.list(sDbQuizExportSelect),
     })
 
     const sResponse = S.shape({
-      result: S.list(myQuizItemPartial),
+      result: S.list(sDbQuizExportPartial),
     })
 
     f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
@@ -156,14 +143,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getByEntry() {
     const sQuery = S.shape({
       entry: sStringNonEmpty,
-      select: S.anyOf(mySelect, S.list(mySelect)),
+      select: sMaybeList(sDbQuizExportSelect),
       type: S.anyOf(sDictionaryType, S.string().enum('user')),
       lang: S.string().enum('chinese').optional(),
       limit: S.string().enum('-1').optional(),
     })
 
     const sResponse = S.shape({
-      result: S.list(myQuizItemPartial),
+      result: S.list(sDbQuizExportPartial),
     })
 
     f.get<typeof sQuery.type>(
@@ -178,21 +165,23 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
         const { entry, select, type, lang } = req.query
 
-        return await _quizGet({
-          userId,
-          entries: [entry],
-          type,
-          select,
-          lang: arrayize(lang),
-        })
+        return {
+          result: await _quizGet({
+            userId,
+            entries: [entry],
+            type,
+            select: arrayize(select),
+            lang: arrayize(lang),
+          }),
+        }
       }
     )
   }
@@ -200,13 +189,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function postGetByEntries() {
     const sBody = S.shape({
       entries: S.list(S.string()).minItems(1),
-      select: S.list(mySelect),
+      select: S.list(sDbQuizExportSelect),
       type: S.anyOf(sDictionaryType, S.string().enum('user')),
       lang: S.list(S.string().enum('chinese')).minItems(1).maxItems(2),
     })
 
     const sResponse = S.shape({
-      result: S.list(myQuizItemPartial),
+      result: S.list(sDbQuizExportPartial),
     })
 
     f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
@@ -221,21 +210,23 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
         const { entries, select, type, lang } = req.body
 
-        return await _quizGet({
-          userId,
-          entries,
-          select,
-          type,
-          lang,
-        })
+        return {
+          result: await _quizGet({
+            userId,
+            entries,
+            select,
+            type,
+            lang,
+          }),
+        }
       }
     )
   }
@@ -247,7 +238,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     type: string
     select: string | string[]
   }) {
-    const rs = await DbQuizModel.aggregate([
+    return await DbQuizModel.aggregate([
       {
         $match: {
           userId: o.userId,
@@ -296,10 +287,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
     ])
-
-    return {
-      result: rs.map((r) => r._id),
-    }
   }
 
   function doMark() {

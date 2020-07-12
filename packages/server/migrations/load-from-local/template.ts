@@ -11,20 +11,12 @@ export async function loadChineseTemplate() {
   ) as {
     [type: string]: {
       [direction: string]: {
+        required?: string[]
         front: string
         back?: string
       }
     }
   }
-
-  Object.entries(template).flatMap(([type, m]) =>
-    Object.entries(m).map(([direction, { front, back }]) => ({
-      type,
-      direction,
-      front,
-      back,
-    }))
-  )
 
   const cats = await DbCategoryModel.insertMany(
     Object.keys(template).map((type) => ({
@@ -33,25 +25,28 @@ export async function loadChineseTemplate() {
       langTo: 'english',
       type: type !== 'extra' ? type : undefined,
       userId: ['default'],
-      tag: ['zhquiz'],
+      tag: ['template', 'zhquiz'],
     }))
   )
 
   await DbTemplateModel.insertMany(
     Object.entries(template).flatMap(([type, m]) =>
-      Object.entries(m).map(([direction, { front, back }]) => ({
-        categoryId: cats.filter((c) => c.type === type)[0]._id,
-        direction,
-        front,
-        back,
-      }))
+      Object.entries(m).map(
+        ([direction, { front, back, required: requiredFields }]) => ({
+          categoryId: cats.filter((c) => c.type === type)[0]._id,
+          direction,
+          front,
+          back,
+          requiredFields,
+        })
+      )
     )
   )
 }
 
 async function cleanup() {
   await DbCategoryModel.purgeMany('default', {
-    tag: 'zhquiz',
+    $and: [{ tag: 'template' }, { tag: 'zhquiz' }],
   })
 }
 

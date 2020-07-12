@@ -11,7 +11,7 @@ import { nanoid } from 'nanoid'
 import XRegExp from 'xregexp'
 
 import { safeString } from '@/util/mongo'
-import { sDateTime } from '@/util/schema'
+import { sDateTime, sDictionaryType, sId } from '@/util/schema'
 
 import { getNextReview, repeatReview, srsMap } from './quiz'
 
@@ -84,8 +84,30 @@ export const sQuizStat = S.shape({
   lastWrong: sDateTime.optional(),
 }).partial()
 
+export const sDbQuizExportSelect = S.string().enum(
+  '_id',
+  'direction',
+  'front',
+  'back',
+  'mnemonic',
+  'srsLevel',
+  'stat'
+)
+
+export const sDbQuizExportPartial = S.shape({
+  _id: S.string().optional(),
+  direction: S.string().optional(),
+  front: S.string().optional(),
+  back: S.string().optional(),
+  mnemonic: S.string().optional(),
+  srsLevel: S.integer().optional(),
+  stat: sQuizStat.optional(),
+})
+
+type IDbQuizExportPartial = typeof sDbQuizExportPartial.type
+
 @index({ userId: 1, templateId: 1, entry: 1, direction: 1 }, { unique: true })
-export class DbQuiz {
+export class DbQuiz implements IDbQuizExportPartial {
   @prop({ default: () => nanoid() }) _id!: string
   @prop({ required: true }) userId!: string
   @prop({ required: true }) templateId!: string
@@ -186,8 +208,16 @@ export const DbQuizModel = getModelForClass(DbQuiz, {
  * Sharable
  */
 
+export const sDbCategoryExportSelect = S.string().enum('type')
+
+export const sDbCategoryExportPartial = S.shape({
+  type: sDictionaryType.optional(),
+})
+
+type IDbCategoryExportPartial = typeof sDbCategoryExportPartial.type
+
 @index({ name: 1, language: 1, type: 1 }, { unique: true })
-export class DbCategory {
+export class DbCategory implements IDbCategoryExportPartial {
   @prop({ default: () => nanoid() }) _id!: string
   @prop({ required: true, validate: (u: string[]) => u.length > 0 })
   userId!: string[]
@@ -195,7 +225,12 @@ export class DbCategory {
   @prop({ required: true }) name!: string
   @prop({ required: true }) langFrom!: string
   @prop({ required: true }) langTo!: string
-  @prop() type?: string
+  @prop({
+    validate: (s) =>
+      typeof s !== 'undefined' && !!sDictionaryType.validate(s)[1],
+  })
+  type?: typeof sDictionaryType.type
+
   @prop() priority?: number
 
   @prop() tag?: string[]
@@ -275,12 +310,32 @@ export const DbCategoryModel = getModelForClass(DbCategory, {
   schemaOptions: { collection: 'category', timestamps: true },
 })
 
+export const sDbTemplateExportSelect = S.string().enum(
+  '_id',
+  'categoryId',
+  'direction',
+  'requiredFields',
+  'front',
+  'back'
+)
+
+export const sDbTemplateExportPartial = S.shape({
+  _id: sId.optional(),
+  categoryId: sId.optional(),
+  direction: S.string().optional(),
+  requiredFields: S.list(S.string()).optional(),
+  front: S.string().optional(),
+  back: S.string().optional(),
+})
+
+type IDbTemplateExportPartial = typeof sDbTemplateExportPartial.type
+
 @index({ categoryId: 1, direction: 1 }, { unique: true })
-export class DbTemplate {
+export class DbTemplate implements IDbTemplateExportPartial {
   @prop({ default: () => nanoid() }) _id!: string
   @prop({ required: true }) categoryId!: string
   @prop({ required: true }) direction!: string
-
+  @prop() requiredFields?: string[]
   @prop({ required: true }) front!: string
   @prop() back?: string
 }
@@ -288,6 +343,26 @@ export class DbTemplate {
 export const DbTemplateModel = getModelForClass(DbTemplate, {
   schemaOptions: { collection: 'template', timestamps: true },
 })
+
+export const sDbItemExportSelect = S.string().enum(
+  '_id',
+  'entry',
+  'alt',
+  'reading',
+  'translation',
+  'updatedAt'
+)
+
+export const sDbItemExportPartial = S.shape({
+  _id: sId.optional(),
+  entry: S.string().optional(),
+  alt: S.list(S.string()).minItems(1).optional(),
+  reading: S.list(S.string()).minItems(1).optional(),
+  translation: S.list(S.string()).minItems(1).optional(),
+  updatedAt: sDateTime.optional(),
+})
+
+type IDbItemExportPartial = typeof sDbItemExportPartial.type
 
 export const sDbItem = S.shape({
   categoryId: S.string(),
@@ -304,7 +379,7 @@ export const sDbItem = S.shape({
 type IDbItem = typeof sDbItem.type
 
 @index({ categoryId: 1, entry: 1 }, { unique: true })
-class DbItem implements IDbItem {
+class DbItem implements IDbItem, IDbItemExportPartial {
   @prop({ default: () => nanoid() }) _id?: string
   @prop({ required: true }) categoryId!: string
   @prop({ required: true, text: true }) entry!: string

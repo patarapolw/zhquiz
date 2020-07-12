@@ -7,11 +7,18 @@ import {
 } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { DbCategoryModel, DbItemModel } from '@/db/mongo'
+import {
+  DbCategoryModel,
+  DbItemModel,
+  sDbItemExportPartial,
+  sDbItemExportSelect,
+} from '@/db/mongo'
 import { arrayize, reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
 import {
+  sDictionaryType,
+  sMaybeList,
   sSrsLevel,
   sStringIntegerNonNegative,
   sStringNonEmpty,
@@ -19,13 +26,6 @@ import {
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['dictionary']
-  const myDictionaryItemPartial = S.shape({
-    entry: sStringNonEmpty.optional(),
-    alt: S.list(S.string()).optional(),
-    reading: S.list(S.string()).optional(),
-    translation: S.list(S.string()).optional(),
-  })
-  const myDictionaryType = S.string().enum('hanzi', 'vocab', 'sentence')
 
   getLevel()
   getMatchAlt()
@@ -63,12 +63,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         reply.header('Cache-Control', 'no-cache')
 
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
         const { lang } = req.query
@@ -153,15 +153,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getMatchAlt() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
-      type: myDictionaryType,
-      select: S.list(
-        S.string().enum('entry', 'alt', 'reading', 'translation')
-      ).optional(),
+      type: sDictionaryType,
+      select: sMaybeList(sDbItemExportSelect),
       lang: S.string().enum('chinese').optional(),
     })
 
     const sResponse = S.shape({
-      result: S.list(myDictionaryItemPartial),
+      result: S.list(sDbItemExportPartial),
       count: S.integer().minimum(0).optional(),
     })
 
@@ -177,21 +175,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         reply.header('Cache-Control', 'no-cache')
 
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
-        const {
-          q,
-          type,
-          select = ['entry', 'alt', 'reading', 'translation'],
-          lang,
-        } = req.query
-
+        const { q, type, select, lang } = req.query
         const [langFrom, langTo] = arrayize(lang) as string[]
 
         return await _doquery({
@@ -199,8 +191,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             $match: { $or: [{ entry: q }, { alt: q }] },
           },
           userId,
-          type,
-          select,
+          type: arrayize(type),
+          select: arrayize(select),
           // limit: -1,
           langFrom,
           langTo,
@@ -212,17 +204,17 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getMatchExact() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
-      type: myDictionaryType,
-      select: S.list(
-        S.string().enum('entry', 'alt', 'reading', 'translation')
-      ).optional(),
+      type: sDictionaryType,
+      select: sMaybeList(sDbItemExportSelect),
       lang: S.string().enum('chinese').optional(),
     })
 
-    const sResponse = S.anyOf(myDictionaryItemPartial, S.null())
+    const sResponse = S.shape({
+      result: sDbItemExportPartial.optional(),
+    })
 
     f.get<typeof sQuery.type>(
-      '/matchAlt',
+      '/matchExact',
       {
         schema: {
           tags,
@@ -233,38 +225,33 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         reply.header('Cache-Control', 'no-cache')
 
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
-        const {
-          q,
-          type,
-          select = ['entry', 'alt', 'reading', 'translation'],
-          lang,
-        } = req.query
+        const { q, type, select, lang } = req.query
 
         const [langFrom, langTo] = arrayize(lang) as string[]
 
-        return (
-          (
-            await _doquery({
-              firstCond: {
-                $match: { entry: q },
-              },
-              userId,
-              type,
-              select,
-              limit: 1,
-              langFrom,
-              langTo,
-            })
-          ).result[0] || null
-        )
+        const {
+          result: [result],
+        } = await _doquery({
+          firstCond: {
+            $match: { entry: q },
+          },
+          userId,
+          type: arrayize(type),
+          select: arrayize(select),
+          limit: 1,
+          langFrom,
+          langTo,
+        })
+
+        return { result }
       }
     )
   }
@@ -272,10 +259,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getSearch() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
-      type: S.anyOf(myDictionaryType, S.list(myDictionaryType)),
-      select: S.list(
-        S.string().enum('entry', 'alt', 'reading', 'translation')
-      ).optional(),
+      type: S.anyOf(sDictionaryType, S.list(sDictionaryType)),
+      select: sMaybeList(sDbItemExportSelect),
       page: S.anyOf(
         sStringIntegerNonNegative,
         S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
@@ -285,7 +270,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     })
 
     const sResponse = S.shape({
-      result: S.list(myDictionaryItemPartial),
+      result: S.list(sDbItemExportPartial),
       count: S.integer().minimum(0).optional(),
     })
 
@@ -301,18 +286,18 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         reply.header('Cache-Control', 'no-cache')
 
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
         const {
           q,
           type,
-          select = ['entry', 'alt', 'reading', 'translation'],
+          select,
           page: [page, perPage] = [],
           limit = '10',
           lang,
@@ -333,8 +318,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             },
           },
           userId,
-          type,
-          select,
+          type: arrayize(type),
+          select: arrayize(select),
           page: iPage,
           perPage: iPerPage,
           limit: iLimit,
@@ -348,7 +333,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function postSearchExcluded() {
     const sBody = S.shape({
       q: sStringNonEmpty,
-      type: S.anyOf(myDictionaryType, S.list(myDictionaryType)),
+      type: S.anyOf(sDictionaryType, S.list(sDictionaryType)),
       select: S.list(S.string().enum('entry', 'alt', 'reading', 'translation')),
       limit: S.integer().minimum(-1).optional(),
       exclude: S.list(S.string()),
@@ -356,7 +341,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     })
 
     const sResponse = S.shape({
-      result: S.list(myDictionaryItemPartial),
+      result: S.list(sDbItemExportPartial),
       count: S.integer().minimum(0).optional(),
     })
 
@@ -372,12 +357,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         reply.header('Cache-Control', 'no-cache')
 
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
         const { q, type, select, limit = 10, lang } = req.body
@@ -394,7 +379,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             },
           },
           userId,
-          type,
+          type: arrayize(type),
           select,
           limit,
           langFrom,
@@ -406,17 +391,17 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getRandom() {
     const sQuery = S.shape({
-      type: myDictionaryType,
+      type: sDictionaryType,
       level: S.anyOf(
         sStringIntegerNonNegative,
         S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
       ).optional(),
-      select: S.list(S.string().enum('entry', 'alt', 'reading', 'translation')),
+      select: sMaybeList(sDbItemExportSelect),
       lang: S.string().enum('chinese').optional(),
     })
 
     const sResponse = S.shape({
-      result: S.list(myDictionaryItemPartial),
+      result: S.list(sDbItemExportPartial),
       count: S.integer().minimum(0).optional(),
     })
 
@@ -432,12 +417,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         reply.header('Cache-Control', 'no-cache')
 
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
         const { type, level = ['60'], lang, select } = req.query
@@ -455,8 +440,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             levelMax: lvArr[1],
           },
           userId,
-          type,
-          select,
+          type: arrayize(type),
+          select: arrayize(select),
           limit: 1,
           langFrom,
           langTo,
@@ -474,7 +459,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     }
     langFrom?: string
     langTo?: string
-    type: string | string[]
+    type: string[]
     page?: number
     perPage?: number
     limit?: number
@@ -591,7 +576,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             {
               $project: Object.assign(
                 { _id: 0 },
-                reduceToObj(o.select.map((k) => [k, 1]))
+                reduceToObj(arrayize(o.select).map((k) => [k, 1]))
               ),
             },
           ],
@@ -601,7 +586,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     ])
 
     return {
-      result: (r[0]?.result || []) as typeof myDictionaryItemPartial.type[],
+      result: (r[0]?.result || []) as typeof sDbItemExportPartial.type[],
       count: o.page
         ? dotProp.get<number>(r[0] || {}, 'count.0.count', 0)
         : undefined,

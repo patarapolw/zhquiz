@@ -6,18 +6,18 @@ import {
 } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { DbTemplateModel } from '@/db/mongo'
-import { sId } from '@/util/schema'
+import {
+  DbTemplateModel,
+  sDbCategoryExportPartial,
+  sDbTemplateExportPartial,
+  sDbTemplateExportSelect,
+} from '@/db/mongo'
+import { arrayize, reduceToObj } from '@/util'
+import { checkAuthorize } from '@/util/api'
+import { sId, sMaybeList } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['template']
-  // const myTemplatePartial = S.shape({
-  //   _id: sId,
-  //   categoryId: sId,
-  //   front: S.string(),
-  //   back: S.string().optional(),
-  //   direction: S.string().optional(),
-  // })
 
   getById()
   postGetByIds()
@@ -27,17 +27,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getById() {
     const sQuery = S.shape({
       id: sId,
-      select: S.anyOf(S.string(), S.list(S.string())),
+      select: sMaybeList(sDbTemplateExportSelect),
     })
 
-    const sResponse = S.anyOf(
-      S.shape({
-        categoryId: sId,
-        front: S.string(),
-        back: S.string().optional(),
-      }),
-      S.null()
-    )
+    const sResponse = S.shape({
+      result: sDbCategoryExportPartial.optional(),
+    })
 
     f.get<typeof sQuery.type>(
       '/',
@@ -51,22 +46,45 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req): Promise<typeof sResponse.type> => {
-        const { id } = req.query
+      async (req, reply): Promise<typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return undefined as any
+        }
 
-        const r = await DbTemplateModel.findById(id).select({
-          categoryId: 1,
-          front: 1,
-          back: 1,
-        })
+        const { id, select } = req.query
 
-        return r
-          ? {
-              categoryId: r.categoryId,
-              front: r.front,
-              back: r.back,
-            }
-          : null
+        const [r] = await DbTemplateModel.aggregate([
+          { $match: { _id: id } },
+          {
+            $lookup: {
+              from: 'category',
+              let: {
+                categoryId: '$categoryId',
+              },
+              pipeline: [
+                {
+                  $match: {
+                    userId: {
+                      $in: [userId, 'shared', 'default'],
+                    },
+                  },
+                },
+                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
+              ],
+              as: 'c',
+            },
+          },
+          { $match: { c: { $size: { $gt: 0 } } } },
+          {
+            $project: Object.assign(
+              { _id: 0 },
+              reduceToObj(arrayize(select).map((k) => [k, 1]))
+            ),
+          },
+        ])
+
+        return r || null
       }
     )
   }
@@ -74,16 +92,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function postGetByIds() {
     const sBody = S.shape({
       ids: S.list(sId).minItems(1),
-      select: S.anyOf(S.string(), S.list(S.string())),
+      select: S.list(sDbTemplateExportSelect).minItems(1),
     })
 
     const sResponse = S.shape({
-      result: S.list(
-        S.shape({
-          _id: sId,
-          direction: S.string(),
-        })
-      ),
+      result: S.list(sDbTemplateExportPartial),
     })
 
     f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
@@ -98,21 +111,46 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req) => {
-        const { ids } = req.body
+      async (req, reply): Promise<typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return undefined as any
+        }
 
-        const rs = await DbTemplateModel.find({
-          _id: { $in: ids },
-        }).select({
-          _id: 1,
-          direction: 1,
-        })
+        const { ids, select } = req.body
+
+        const rs = await DbTemplateModel.aggregate([
+          { $match: { _id: { $in: ids } } },
+          {
+            $lookup: {
+              from: 'category',
+              let: {
+                categoryId: '$categoryId',
+              },
+              pipeline: [
+                {
+                  $match: {
+                    userId: {
+                      $in: [userId, 'shared', 'default'],
+                    },
+                  },
+                },
+                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
+              ],
+              as: 'c',
+            },
+          },
+          { $match: { c: { $size: { $gt: 0 } } } },
+          {
+            $project: Object.assign(
+              { _id: 0 },
+              reduceToObj(arrayize(select).map((k) => [k, 1]))
+            ),
+          },
+        ])
 
         return {
-          result: rs.map((r) => ({
-            _id: r._id,
-            direction: r.direction,
-          })),
+          result: rs,
         }
       }
     )

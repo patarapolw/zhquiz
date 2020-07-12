@@ -3,15 +3,19 @@ import dotProp from 'dot-prop-immutable'
 import { DefaultHeaders, DefaultParams, FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { DbCategoryModel, DbItemModel } from '@/db/mongo'
+import {
+  DbCategoryModel,
+  DbItemModel,
+  sDbItemExportPartial,
+  sDbItemExportSelect,
+} from '@/db/mongo'
 import { arrayize, reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
 import {
-  sDateTime,
   sDictionaryType,
   sId,
-  sListStringNonEmpty,
+  sMaybeList,
   sSort,
   sStringIntegerNonNegative,
   sStringNonEmpty,
@@ -19,33 +23,6 @@ import {
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['item']
-  const myItem = S.shape({
-    entry: S.string(),
-    alt: sListStringNonEmpty.optional(),
-    reading: sListStringNonEmpty.optional(),
-    translation: sListStringNonEmpty.optional(),
-  })
-  const myItemPartial = S.shape({
-    entry: S.string().optional(),
-    alt: sListStringNonEmpty.optional(),
-    reading: sListStringNonEmpty.optional(),
-    translation: sListStringNonEmpty.optional(),
-    updatedAt: sDateTime.optional(),
-  })
-  const mySelect = S.string().enum(
-    '_id',
-    'entry',
-    'alt',
-    'reading',
-    'translation'
-  )
-  const mySelectDefault: typeof mySelect.type[] = [
-    '_id',
-    'entry',
-    'alt',
-    'reading',
-    'translation',
-  ]
   const mySort = sSort([
     'entry',
     'alt.0',
@@ -66,7 +43,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getUserItems() {
     const sQuery = S.shape({
       q: sStringNonEmpty.optional(),
-      select: S.anyOf(mySelect, S.list(mySelect)),
+      select: sMaybeList(sDbItemExportSelect),
       page: S.anyOf(
         sStringIntegerNonNegative,
         S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
@@ -79,7 +56,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     })
 
     const sResponse = S.shape({
-      result: S.list(myItemPartial),
+      result: S.list(sDbItemExportPartial),
       count: S.integer().optional(),
     })
 
@@ -95,19 +72,19 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         reply.header('Cache-Control', 'no-cache')
 
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
         const {
           q,
           page: [page, perPage] = [],
           limit = '10',
-          select = mySelectDefault,
+          select,
           sort = '-updatedAt',
         } = req.query
 
@@ -191,7 +168,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       lang: S.string().enum('chinese').optional(),
     })
 
-    const sBody = myItem
+    const sBody = sDbItemExportPartial.required('entry')
 
     const sResponse = S.shape({
       type: sDictionaryType.optional(),
@@ -209,10 +186,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
-      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+      async (req, reply): Promise<typeof sResponse.type> => {
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return
+          return undefined as any
         }
 
         const { lang } = req.query
@@ -302,12 +279,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         ])
 
         if (!template.length) {
-          reply
-            .status(500)
-            .send(
-              'Cannot create item due to lack of templating for quiz. Please contact the admin.'
-            )
-          return
+          reply.status(500).send({
+            error:
+              'Cannot create item due to lack of templating for quiz. Please contact the admin.',
+          })
+          return undefined as any
         }
 
         await DbItemModel.create({
@@ -333,7 +309,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     })
 
     const sBody = S.shape({
-      set: myItemPartial,
+      set: sDbItemExportPartial,
     })
 
     f.patch<
@@ -351,7 +327,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        const userId = checkAuthorize(req, reply)
+        const userId = checkAuthorize(req, reply, {})
         if (!userId) {
           return
         }
@@ -386,7 +362,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        const userId = checkAuthorize(req, reply)
+        const userId = checkAuthorize(req, reply, {})
         if (!userId) {
           return
         }
@@ -443,7 +419,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        const userId = checkAuthorize(req, reply)
+        const userId = checkAuthorize(req, reply, {})
         if (!userId) {
           return
         }
@@ -506,7 +482,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        const userId = checkAuthorize(req, reply)
+        const userId = checkAuthorize(req, reply, {})
         if (!userId) {
           return
         }
