@@ -177,7 +177,7 @@ export default class ExtraPage extends Vue {
   async loadPage(reset?: boolean) {
     const p = reset ? 1 : this.page
 
-    const { result, count } = await this.$axios.$get('/api/item/all', {
+    const { result, count } = await this.$axios.$get('/api/item/search', {
       params: {
         type: 'user',
         select: ['entry', 'reading', 'translation'],
@@ -216,18 +216,15 @@ export default class ExtraPage extends Vue {
     const { row, quizIds } = this.selected
 
     if (quizIds.length) {
-      await this.$axios.$delete('/api/quiz', {
-        params: {
-          id: quizIds,
-        },
+      await this.$axios.$post('/api/quiz/delete/ids', {
+        ids: quizIds,
       })
     }
 
     if (row) {
-      await this.$axios.$delete('/api/item', {
+      await this.$axios.$delete('/api/item/entry', {
         params: {
           entry: row.entry,
-          type: 'user',
         },
       })
       this.tableData = this.tableData.filter((d) => d.entry === row.entry)
@@ -246,9 +243,11 @@ export default class ExtraPage extends Vue {
 
   async loadSelectedStatus() {
     if (this.selected.row) {
-      const { result } = await this.$axios.$get('/api/quiz', {
+      const { entry } = this.selected.row
+
+      const { result } = await this.$axios.$get('/api/quiz/entry', {
         params: {
-          entry: this.selected.row.entry,
+          entry,
           type: 'user',
           select: ['_id'],
           limit: -1,
@@ -277,9 +276,7 @@ export default class ExtraPage extends Vue {
     const { row, quizIds } = this.selected
 
     if (row && quizIds.length) {
-      await this.$axios.$delete('/api/item', {
-        params: { id: quizIds },
-      })
+      await this.$axios.$post('/api/item/delete/ids', { ids: quizIds })
       this.$buefy.snackbar.open(`Removed extra: ${row.entry} from quiz`)
     }
   }

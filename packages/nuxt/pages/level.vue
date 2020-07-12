@@ -238,15 +238,12 @@ export default class LevelPage extends Vue {
         srsLevel?: number
       }[]
     } = await (entries.length > 0
-      ? this.$axios.$post('/api/dictionary/level', {
-          entry: entries,
+      ? this.$axios.$post('/api/quiz/entries', {
+          entries,
+          type: 'vocab',
           select: ['entry', 'srsLevel'],
         })
-      : this.$axios.$get('/api/dictionary/level', {
-          params: {
-            select: ['entry', 'srsLevel', 'level'],
-          },
-        }))
+      : this.$axios.$get('/api/dictionary/level'))
 
     result.map(({ entry, level, srsLevel }) => {
       if (level) {
@@ -275,8 +272,10 @@ export default class LevelPage extends Vue {
 
   async loadSelectedStatus() {
     if (this.selected.entries.length) {
-      const { result } = await this.$axios.$post('/api/quiz', {
-        entry: this.selected.entries,
+      const { entries } = this.selected
+
+      const { result } = await this.$axios.$post('/api/quiz/entries', {
+        entries,
         type: 'vocab',
         select: ['_id'],
       })
@@ -290,7 +289,10 @@ export default class LevelPage extends Vue {
     const { entries } = this.selected
 
     if (entries.length) {
-      await this.$axios.$put('/api/quiz', { entry: entries, type: 'vocab' })
+      await this.$axios.$put('/api/quiz/entries', {
+        entries,
+        type: 'vocab',
+      })
       this.$buefy.snackbar.open(
         `Added vocab: ${entries.slice(0, 3).join(',')}${
           entries.length > 3 ? '...' : ''
@@ -304,7 +306,7 @@ export default class LevelPage extends Vue {
     const { entries, quizIds } = this.selected
 
     if (entries.length && quizIds.length) {
-      await this.$axios.$post('/api/quiz/delete', { id: quizIds })
+      await this.$axios.$post('/api/quiz/delete/ids', { ids: quizIds })
       this.$buefy.snackbar.open(
         `Removed vocab: ${entries.slice(0, 3).join(',')}${
           entries.length > 3 ? '...' : ''

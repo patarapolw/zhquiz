@@ -395,14 +395,14 @@ export default class VocabPage extends Vue {
     const [rv, rs] = await Promise.all([
       this.dict.vocab[c]
         ? null
-        : this.$axios.$get('/api/dictionary', {
+        : this.$axios.$get('/api/dictionary/matchAlt', {
             params: {
               q: c,
               select: ['entry', 'alt', 'reading', 'translation'],
               type: 'vocab',
             },
           }),
-      this.$axios.$post('/api/dictionary/q', {
+      this.$axios.$post('/api/dictionary/search', {
         q: c,
         type: 'sentence',
         select: ['entry', 'translation'],
@@ -433,8 +433,8 @@ export default class VocabPage extends Vue {
       return
     }
 
-    await this.$axios.$put('/api/quiz', {
-      entry,
+    await this.$axios.$put('/api/quiz/entries', {
+      entries: [entry],
       type,
     })
     await this.loadSelectedStatus()
@@ -448,10 +448,8 @@ export default class VocabPage extends Vue {
       return
     }
 
-    await this.$axios.$delete('/api/quiz', {
-      params: {
-        id: quizIds,
-      },
+    await this.$axios.$post('/api/quiz/delete/ids', {
+      ids: quizIds,
     })
     await this.loadSelectedStatus()
 
@@ -462,9 +460,9 @@ export default class VocabPage extends Vue {
     const { entry, type } = this.selected
 
     if (entry && type) {
-      const { result } = await this.$axios.$get('/api/quiz', {
+      const { result } = await this.$axios.$get('/api/quiz/entry', {
         params: {
-          q: entry,
+          entry,
           type,
           select: ['_id'],
         },

@@ -303,24 +303,24 @@
                 <button
                   ref="btnMarkRight"
                   class="button is-success"
-                  @click="markRight"
-                  @keypress="markRight"
+                  @click="doMark('right')"
+                  @keypress="doMark('right')"
                 >
                   Right
                 </button>
                 <button
                   ref="btnMarkWrong"
                   class="button is-danger"
-                  @click="markWrong"
-                  @keypress="markWrong"
+                  @click="doMark('wrong')"
+                  @keypress="doMark('wrong')"
                 >
                   Wrong
                 </button>
                 <button
                   ref="btnMarkRepeat"
                   class="button is-warning"
-                  @click="markRepeat"
-                  @keypress="markRepeat"
+                  @click="doMark('repeat')"
+                  @keypress="doMark('repeat')"
                 >
                   Repeat
                 </button>
@@ -464,7 +464,7 @@ type IDictionaryType = 'hanzi' | 'vocab' | 'sentence'
 
 interface ITemplate {
   _id: string
-  type: IDictionaryType
+  categoryId: string
   front: string
   back?: string
   _meta?: {
@@ -585,6 +585,13 @@ export default class QuizPage extends Vue {
     [templateId: string]: ITemplate
   } = {}
 
+  categoryData: {
+    [categoryId: string]: {
+      _id: string
+      type: IDictionaryType
+    }
+  } = {}
+
   dictionaryData: Record<
     IDictionaryType,
     {
@@ -690,9 +697,14 @@ export default class QuizPage extends Vue {
       return null
     }
 
-    const data = this.dictionaryData[t.type][entry]
+    const cat = this.categoryData[t.categoryId]
+    if (!cat) {
+      return null
+    }
 
-    if (t.type === 'vocab') {
+    const data = this.dictionaryData[cat.type][entry]
+
+    if (cat.type === 'vocab') {
       const sentences = this.dictionaryData.sentence[entry]
       if (data && sentences) {
         return { data, sentences }
@@ -778,8 +790,8 @@ export default class QuizPage extends Vue {
         // eslint-disable-next-line no-console
       })().catch(console.error),
       (async () => {
-        const { result } = await this.$axios.$get('/api/quiz/tag/all')
-        this.allTags = result
+        const { tags } = await this.$axios.$get('/api/quiz/tag/all')
+        this.allTags = tags
 
         // eslint-disable-next-line no-console
       })().catch(console.error),
@@ -797,6 +809,10 @@ export default class QuizPage extends Vue {
       {
         params: {
           type: this.type,
+          stage: this.stage,
+          direction: this.direction,
+          isDue: this.isDue ? '1' : undefined,
+          tag: this.selectedTags.length > 0 ? this.selectedTags : undefined,
         },
       }
     )
@@ -851,9 +867,9 @@ export default class QuizPage extends Vue {
     const { quizId, tag } = this.selectedRow
 
     await this.$axios.$patch(
-      '/api/quiz/tag',
+      '/api/quiz',
       {
-        tag,
+        set: { tag },
       },
       {
         params: {
@@ -932,10 +948,10 @@ export default class QuizPage extends Vue {
 
     let t = this.templateData[q.templateId]
     if (!t) {
-      t = await this.$axios.$get('/api/quiz/template', {
+      t = await this.$axios.$get('/api/template', {
         params: {
           id: q.templateId,
-          select: ['type', 'front', 'back', 'mnemonic'],
+          select: ['categoryId', 'front', 'back'],
         },
       })
       t._id = q.templateId
@@ -943,19 +959,36 @@ export default class QuizPage extends Vue {
       this.$set(this.templateData, q.templateId, t)
     }
 
-    let data = this.dictionaryData[t.type][q.entry]
+    let cat = this.categoryData[t.categoryId]
+    if (!cat) {
+      cat = await this.$axios.$get('/api/category', {
+        params: {
+          id: t.categoryId,
+          select: ['type'],
+        },
+      })
+      cat._id = t.categoryId
+
+      this.$set(this.categoryData, t.categoryId, cat)
+    }
+
+    let data = this.dictionaryData[cat.type][q.entry]
     if (!data || !data.reading) {
-      data = await this.$axios.$get('/api/dictionary', {
+      data = await this.$axios.$get('/api/dictionary/matchExact', {
         params: {
           q: q.entry,
           select: ['entry', 'alt', 'reading', 'translation'],
         },
       })
 
-      this.$set(this.dictionaryData[t.type], q.entry, data)
+      this.$set(
+        this.dictionaryData[cat.type],
+        q.entry,
+        data || { entry: q.entry }
+      )
     }
 
-    if (t.type === 'vocab') {
+    if (cat.type === 'vocab') {
       let sentences = Object.entries(this.dictionaryData.sentence)
         .filter(([entry]) => entry.includes(q.entry!))
         .map(([, content]) => content)
@@ -964,13 +997,12 @@ export default class QuizPage extends Vue {
 
       if (sentences.length < 10) {
         sentences = (
-          await this.$axios.$get('/api/dictionary/q', {
-            params: {
-              q: q.entry,
-              select: ['entry', 'translation'],
-              type: 'sentence',
-              limit: 10,
-            },
+          await this.$axios.$post('/api/dictionary/search', {
+            q: q.entry,
+            select: ['entry', 'translation'],
+            type: 'sentence',
+            limit: 10,
+            exclude: Object.keys(this.dictionaryData.sentence),
           })
         ).result
 
@@ -984,33 +1016,14 @@ export default class QuizPage extends Vue {
     this.isQuizItemReady = true
   }
 
-  async markRight() {
+  async doMark(type: 'right' | 'wrong' | 'repeat') {
     if (this.quizCurrentId) {
       this.isQuizItemReady = false
-      await this.$axios.$patch('/api/quiz/right', undefined, {
-        params: { id: this.quizCurrentId },
-      })
-      this.isQuizItemReady = true
-    }
-    this.initNextQuizItem()
-  }
-
-  async markWrong() {
-    if (this.quizCurrentId) {
-      this.isQuizItemReady = false
-      await this.$axios.$patch('/api/quiz/wrong', undefined, {
-        params: { id: this.quizCurrentId },
-      })
-      this.isQuizItemReady = true
-    }
-    this.initNextQuizItem()
-  }
-
-  async markRepeat() {
-    if (this.quizCurrentId) {
-      this.isQuizItemReady = false
-      await this.$axios.$patch('/api/quiz/repeat', undefined, {
-        params: { id: this.quizCurrentId },
+      await this.$axios.$patch('/api/quiz/mark', undefined, {
+        params: {
+          id: this.quizCurrentId,
+          type,
+        },
       })
       this.isQuizItemReady = true
     }
@@ -1167,12 +1180,9 @@ export default class QuizPage extends Vue {
           (id) => this.quizData[id] && !this.quizData[id]._meta
         )
 
-        const { result } = (await this.$axios.$get('/api/quiz', {
-          params: {
-            id: quizIds,
-            select: ['_id', 'tag'],
-            limit: quizIds.length,
-          },
+        const { result } = (await this.$axios.$post('/api/quiz/ids', {
+          ids: quizIds,
+          select: ['_id', 'tag'],
         })) as {
           result: {
             _id: string
@@ -1193,12 +1203,9 @@ export default class QuizPage extends Vue {
           (id) => this.templateData[id] && !this.templateData[id]._meta
         )
 
-        const { result } = (await this.$axios.$get('/api/template', {
-          params: {
-            id: templateIds,
-            select: ['_id', 'direction'],
-            limit: templateIds.length,
-          },
+        const { result } = (await this.$axios.$post('/api/template/ids', {
+          ids: templateIds,
+          select: ['_id', 'direction'],
         })) as {
           result: {
             _id: string

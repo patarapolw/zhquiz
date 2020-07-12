@@ -439,14 +439,14 @@ export default class HanziPage extends Vue {
                 q: this.current,
               },
             }),
-        this.$axios.$post('/api/dictionary/q', {
+        this.$axios.$post('/api/dictionary/search', {
           q: this.current,
           type: 'vocab',
           select: ['entry', 'alt', 'reading', 'translation'],
           limit: 10,
           exclude: Object.keys(this.dict.vocab),
         }),
-        this.$axios.$post('/api/dictionary/q', {
+        this.$axios.$post('/api/dictionary/search', {
           q: this.current,
           type: 'sentence',
           select: ['entry', 'translation'],
@@ -477,11 +477,12 @@ export default class HanziPage extends Vue {
     const { entry, type } = this.selected
 
     if (entry && type) {
-      const { result } = await this.$axios.$get('/api/quiz', {
+      const { result } = await this.$axios.$get('/api/quiz/entry', {
         params: {
-          q: entry,
+          entry,
           type,
           select: ['_id'],
+          limit: -1,
         },
       })
 
@@ -494,8 +495,8 @@ export default class HanziPage extends Vue {
     const { entry, type } = this.selected
 
     if (entry && type) {
-      await this.$axios.$put('/api/quiz', {
-        entry,
+      await this.$axios.$put('/api/quiz/entries', {
+        entries: [entry],
         type,
       })
       this.$buefy.snackbar.open(`Added ${type}: ${entry} to quiz`)
@@ -506,10 +507,8 @@ export default class HanziPage extends Vue {
     const { entry, type, quizIds } = this.selected
 
     if (entry && type && quizIds.length) {
-      await this.$axios.$delete('/api/quiz', {
-        params: {
-          id: quizIds,
-        },
+      await this.$axios.$post('/api/quiz/delete/ids', {
+        ids: quizIds,
       })
 
       this.$buefy.snackbar.open(`Removed ${type}: ${entry} from quiz`)

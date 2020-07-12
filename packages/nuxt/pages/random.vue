@@ -225,18 +225,22 @@ export default class RandomPage extends Vue {
       return
     }
 
-    const {
-      entry = '',
-      translation: [translation = ''] = [],
-    } = await this.$axios.$get('/api/dictionary/random', {
+    const r = await this.$axios.$get('/api/dictionary/random', {
       params: {
         type,
         select: ['entry', 'translation'],
         level: [this.levelMin, this.level],
       },
     })
-    this.current[type].entry = entry
-    this.current[type].translation = translation
+
+    this.current[type].entry = ''
+    this.current[type].translation = ''
+
+    if (r && r.result && r.result[0]) {
+      const { entry = '', translation: [translation = ''] = [] } = r.result[0]
+      this.current[type].entry = entry
+      this.current[type].translation = translation
+    }
 
     this.$set(this.current, type, this.current[type])
   }
@@ -248,8 +252,8 @@ export default class RandomPage extends Vue {
     }
 
     if (entry) {
-      await this.$axios.$put('/api/quiz', {
-        entry,
+      await this.$axios.$put('/api/quiz/entries', {
+        entries: [entry],
         type,
       })
       await this.getQuizStatus(type)
@@ -264,10 +268,8 @@ export default class RandomPage extends Vue {
       return
     }
 
-    await this.$axios.$delete('/api/quiz', {
-      params: {
-        id: quizIds,
-      },
+    await this.$axios.$post('/api/quiz/delete/ids', {
+      ids: quizIds,
     })
     await this.getQuizStatus(type)
 
@@ -279,9 +281,9 @@ export default class RandomPage extends Vue {
     let quizIds: string[] = []
 
     if (entry) {
-      const { result } = await this.$axios.$get('/api/quiz', {
+      const { result } = await this.$axios.$get('/api/quiz/entry', {
         params: {
-          q: entry,
+          entry,
           select: ['_id'],
           limit: -1,
         },
