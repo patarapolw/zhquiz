@@ -54,17 +54,19 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     'updatedAt',
   ])
 
-  getAll()
-  getMatch()
+  getUserItems()
   doCreate()
   doUpdate()
   doDelete()
+  postDeleteByIds()
+  doDeleteEntry()
 
   next()
 
-  function getAll() {
+  function getUserItems() {
     const sQuery = S.shape({
-      select: S.anyOf(mySelect, S.list(mySelect)).optional(),
+      q: sStringNonEmpty.optional(),
+      select: S.anyOf(mySelect, S.list(mySelect)),
       page: S.anyOf(
         sStringIntegerNonNegative,
         S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
@@ -82,11 +84,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     })
 
     f.get<typeof sQuery.type>(
-      '/all',
+      '/search',
       {
         schema: {
           tags,
-          summary: 'All user-created items',
+          summary: 'Search for user-created items',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -102,6 +104,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const {
+          q,
           page: [page, perPage] = [],
           limit = '10',
           select = mySelectDefault,
@@ -113,7 +116,36 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         )
 
         const r = await DbItemModel.aggregate([
-          ...getExtraChineseAggregate(userId),
+          ...(q ? [{ $match: { entry: safeString(q) } }] : []),
+          {
+            $lookup: {
+              from: 'template',
+              let: {
+                templateId: '$_id',
+              },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $eq: ['$_id', '$$templateId'],
+                    },
+                  },
+                },
+                {
+                  $match: {
+                    userId,
+                    langFrom: 'chinese',
+                    langTo: 'english',
+                    type: { $exists: false },
+                  },
+                },
+              ],
+              as: 't',
+            },
+          },
+          {
+            $match: { t: { $size: { $gt: 0 } } },
+          },
           {
             $facet: {
               result: [
@@ -150,52 +182,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           result: r[0]?.result || [],
           count: page ? dotProp.get(r[0] || {}, 'count.0.count', 0) : undefined,
         }
-      }
-    )
-  }
-
-  function getMatch() {
-    const sQuery = S.shape({
-      q: sStringNonEmpty,
-      select: S.anyOf(mySelect, S.list(mySelect)).optional(),
-    })
-
-    const sResponse = myItemPartial
-
-    f.get<typeof sQuery.type>(
-      '/match',
-      {
-        schema: {
-          tags,
-          summary: 'Get data for a given user-created item',
-          querystring: sQuery.valueOf(),
-          response: {
-            200: sResponse.valueOf(),
-          },
-        },
-      },
-      async (req, reply) => {
-        reply.header('Cache-Control', 'no-cache')
-
-        const userId = checkAuthorize(req, reply)
-        if (!userId) {
-          return
-        }
-
-        const { q, select = mySelectDefault } = req.query
-        const r =
-          (
-            await DbItemModel.aggregate([
-              { $match: { entry: q } },
-              ...getExtraChineseAggregate(userId),
-              { $limit: 1 },
-            ])
-          )[0] || ({} as any)
-
-        return arrayize(select).reduce(
-          (prev, k) => ({ ...prev, [k]: r[k] }),
-          {} as Record<string, any>
-        )
       }
     )
   }
@@ -387,7 +373,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doDelete() {
     const sQuery = S.shape({
-      id: S.anyOf(sId, S.list(sId)),
+      id: sId,
     })
 
     f.delete<typeof sQuery.type>(
@@ -407,43 +393,153 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { id } = req.query
 
-        await DbItemModel.deleteMany({ _id: { $in: arrayize(id) } })
-        reply.status(201).send()
+        const its = await DbItemModel.aggregate([
+          { $match: { _id: id } },
+          {
+            $lookup: {
+              from: 'category',
+              let: {
+                categoryId: '$categoryId',
+              },
+              pipeline: [
+                {
+                  $match: {
+                    userId,
+                    type: { $exists: false },
+                  },
+                },
+                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
+              ],
+              as: 'c',
+            },
+          },
+          { $match: { c: { $size: { $gt: 0 } } } },
+          { $project: { _id: 1 } },
+        ])
+
+        if (its.length > 0) {
+          await DbItemModel.deleteOne({ _id: { $in: its.map((it) => it._id) } })
+          reply.status(201).send()
+          return
+        }
+
+        reply.status(304).send()
       }
     )
   }
 
-  function getExtraChineseAggregate(userId: string) {
-    return [
+  function postDeleteByIds() {
+    const sQuery = S.shape({
+      ids: S.list(sId),
+    })
+
+    f.post<typeof sQuery.type>(
+      '/delete/ids',
       {
-        $lookup: {
-          from: 'template',
-          let: {
-            templateId: '$_id',
-          },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$_id', '$$templateId'] },
-                    {
-                      userId,
-                      langFrom: 'chinese',
-                      langTo: 'english',
-                      type: { $exists: false },
-                    },
-                  ],
-                },
-              },
-            },
-          ],
-          as: 't',
+        schema: {
+          tags,
+          summary: 'Delete user-created items',
+          querystring: sQuery.valueOf(),
         },
       },
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { ids } = req.query
+
+        const its = (
+          await DbItemModel.aggregate([
+            { $match: { _id: { $in: ids } } },
+            {
+              $lookup: {
+                from: 'category',
+                let: {
+                  categoryId: '$categoryId',
+                },
+                pipeline: [
+                  {
+                    $match: {
+                      userId,
+                      type: { $exists: false },
+                    },
+                  },
+                  { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
+                ],
+                as: 'c',
+              },
+            },
+            { $match: { c: { $size: { $gt: 0 } } } },
+            { $project: { _id: 1 } },
+          ])
+        ).map((it) => it._id)
+
+        if (its.length > 0) {
+          await DbItemModel.deleteMany({
+            _id: { $in: its.map((it) => it._id) },
+          })
+          reply.status(201).send({
+            deleted: its.length,
+          })
+          return
+        }
+
+        reply.status(304).send()
+      }
+    )
+  }
+
+  function doDeleteEntry() {
+    const sQuery = S.shape({
+      entry: sStringNonEmpty,
+    })
+
+    f.delete<typeof sQuery.type>(
+      '/entry',
       {
-        $match: { t: { $size: { $gt: 0 } } },
+        schema: {
+          tags,
+          summary: 'Delete user-created items by specifying entry',
+          querystring: sQuery.valueOf(),
+        },
       },
-    ]
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { entry } = req.query
+
+        const its = await DbItemModel.aggregate([
+          { $match: { entry: safeString(entry) } },
+          {
+            $lookup: {
+              from: 'category',
+              let: {
+                categoryId: '$categoryId',
+              },
+              pipeline: [
+                {
+                  $match: {
+                    userId,
+                    type: { $exists: false },
+                  },
+                },
+                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
+              ],
+              as: 'c',
+            },
+          },
+          { $match: { c: { $size: { $gt: 0 } } } },
+          { $project: { _id: 1 } },
+        ])
+
+        await DbItemModel.deleteMany({ _id: { $in: its.map((it) => it._id) } })
+        reply.status(201).send()
+      }
+    )
   }
 }

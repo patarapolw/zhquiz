@@ -1,13 +1,16 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 
-export function checkAuthorize<T>(
+export function checkAuthorize(
   req: FastifyRequest,
   reply: FastifyReply<any>,
-  message?: T
+  payload: Record<string, any> & {
+    message?: string
+  } = {}
 ) {
   const u = req.session.user
   if (!u || !u._id) {
-    reply.status(401).send(message)
+    payload.message = 'Unauthorized'
+    reply.status(401).send(payload)
     return null
   }
 

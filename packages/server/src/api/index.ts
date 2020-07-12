@@ -6,9 +6,11 @@ import admin from 'firebase-admin'
 
 import { DbUserModel } from '@/db/mongo'
 
+import categoryRouter from './category'
 import chineseRouter from './chinese'
 import itemRouter from './item'
 import quizRouter from './quiz'
+import templateRouter from './template'
 import tokenRouter from './token'
 import userRouter from './user'
 
@@ -68,6 +70,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   f.register(itemRouter, { prefix: '/item' })
   f.register(userRouter, { prefix: '/user' })
   f.register(quizRouter, { prefix: '/quiz' })
+  f.register(categoryRouter, { prefix: '/category' })
+  f.register(templateRouter, { prefix: '/template' })
 
   next()
 }

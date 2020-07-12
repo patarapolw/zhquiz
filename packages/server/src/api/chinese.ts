@@ -8,12 +8,12 @@ import { sStringNonEmpty } from '@/util/schema'
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['chinese']
 
-  chineseJieba()
-  chinesePinyin()
+  getJieba()
+  getPinyin()
 
   next()
 
-  function chineseJieba() {
+  function getJieba() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
     })
@@ -43,7 +43,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     )
   }
 
-  function chinesePinyin() {
+  function getPinyin() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
     })

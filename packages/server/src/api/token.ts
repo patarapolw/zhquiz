@@ -6,11 +6,11 @@ import { DbTokenModel, sToken, sTokenArray } from '@/db/mongo'
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['token']
 
-  tokenRadical()
+  getRadical()
 
   next()
 
-  function tokenRadical() {
+  function getRadical() {
     const sQuery = S.shape({
       q: sToken,
     })

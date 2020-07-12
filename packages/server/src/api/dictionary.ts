@@ -1,8 +1,13 @@
 import dotProp from 'dot-prop-immutable'
-import { FastifyInstance } from 'fastify'
+import {
+  DefaultHeaders,
+  DefaultParams,
+  DefaultQuery,
+  FastifyInstance,
+} from 'fastify'
 import S from 'jsonschema-definer'
 
-import { DbCategoryModel, DbItemModel, DbQuizModel } from '@/db/mongo'
+import { DbCategoryModel, DbItemModel } from '@/db/mongo'
 import { arrayize, reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
@@ -23,9 +28,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   const myDictionaryType = S.string().enum('hanzi', 'vocab', 'sentence')
 
   getLevel()
-  getMatch()
-  doQuery()
-  doRandom()
+  getMatchAlt()
+  getMatchExact()
+  getSearch()
+  postSearchExcluded()
+  getRandom()
 
   next()
 
@@ -143,7 +150,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     )
   }
 
-  function getMatch() {
+  function getMatchAlt() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
       type: myDictionaryType,
@@ -155,10 +162,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
     const sResponse = S.shape({
       result: S.list(myDictionaryItemPartial),
+      count: S.integer().minimum(0).optional(),
     })
 
     f.get<typeof sQuery.type>(
-      '/match',
+      '/matchAlt',
       {
         schema: {
           tags,
@@ -184,81 +192,84 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           lang,
         } = req.query
 
-        let [langFrom, langTo] = arrayize(lang) as string[]
-        langFrom = langFrom || 'chinese'
-        langTo = langTo || 'english'
+        const [langFrom, langTo] = arrayize(lang) as string[]
 
-        const r = await DbItemModel.aggregate([
-          {
-            $match: {
-              $or: [{ entry: q }, { alt: q }],
-            },
+        return await _doquery({
+          firstCond: {
+            $match: { $or: [{ entry: q }, { alt: q }] },
           },
-          {
-            $lookup: {
-              from: 'category',
-              let: {
-                categoryId: '$categoryId',
-              },
-              pipeline: [
-                {
-                  $match: {
-                    userId: {
-                      $in: [userId, 'shared', 'default'],
-                    },
-                    type: safeString(type),
-                    langFrom: safeString(langFrom),
-                    langTo: safeString(langTo),
-                  },
-                },
-                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-              ],
-              as: 'c',
-            },
-          },
-          { $unwind: '$c' },
-          { $unwind: { $path: '$alt', preserveNullAndEmptyArrays: true } },
-          { $unwind: { $path: '$reading', preserveNullAndEmptyArrays: true } },
-          {
-            $unwind: {
-              $path: '$translation',
-              preserveNullAndEmptyArrays: true,
-            },
-          },
-          {
-            group: {
-              _id: 'entry',
-              cPriority: { $max: '$c.priority' },
-              priority: { $max: '$priority' },
-              frequency: { $max: '$frequency' },
-              alt: { $push: '$alt' },
-              reading: { $push: '$reading' },
-              translation: { $push: '$translation' },
-            },
-          },
-          {
-            $sort: {
-              cPriority: -1,
-              priority: -1,
-              frequency: -1,
-            },
-          },
-          {
-            $project: Object.assign(
-              { _id: 0 },
-              reduceToObj(select.map((k) => [k, 1]))
-            ),
-          },
-        ])
-
-        return {
-          result: r,
-        }
+          userId,
+          type,
+          select,
+          // limit: -1,
+          langFrom,
+          langTo,
+        })
       }
     )
   }
 
-  function doQuery() {
+  function getMatchExact() {
+    const sQuery = S.shape({
+      q: sStringNonEmpty,
+      type: myDictionaryType,
+      select: S.list(
+        S.string().enum('entry', 'alt', 'reading', 'translation')
+      ).optional(),
+      lang: S.string().enum('chinese').optional(),
+    })
+
+    const sResponse = S.anyOf(myDictionaryItemPartial, S.null())
+
+    f.get<typeof sQuery.type>(
+      '/matchAlt',
+      {
+        schema: {
+          tags,
+          summary: 'Look up Chinese dictionary for a matched item',
+          querystring: sQuery.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+        reply.header('Cache-Control', 'no-cache')
+
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const {
+          q,
+          type,
+          select = ['entry', 'alt', 'reading', 'translation'],
+          lang,
+        } = req.query
+
+        const [langFrom, langTo] = arrayize(lang) as string[]
+
+        return (
+          (
+            await _doquery({
+              firstCond: {
+                $match: { entry: q },
+              },
+              userId,
+              type,
+              select,
+              limit: 1,
+              langFrom,
+              langTo,
+            })
+          ).result[0] || null
+        )
+      }
+    )
+  }
+
+  function getSearch() {
     const sQuery = S.shape({
       q: sStringNonEmpty,
       type: S.anyOf(myDictionaryType, S.list(myDictionaryType)),
@@ -279,7 +290,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     })
 
     f.get<typeof sQuery.type>(
-      '/q',
+      '/search',
       {
         schema: {
           tags,
@@ -307,114 +318,106 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           lang,
         } = req.query
 
-        let [langFrom, langTo] = arrayize(lang) as string[]
-        langFrom = langFrom || 'chinese'
-        langTo = langTo || 'english'
-
+        const [langFrom, langTo] = arrayize(lang)
         const [iPage, iPerPage, iLimit] = [page, perPage, limit].map((el) =>
           parseInt(el)
         )
 
-        const r = await DbItemModel.aggregate([
-          {
+        return await _doquery({
+          firstCond: {
             $match: {
               $text: {
                 $search: safeString(q),
-                $language: safeString(langFrom),
+                $language: safeString(langFrom || 'chinese'),
               },
             },
           },
-          {
-            $lookup: {
-              from: 'category',
-              let: {
-                categoryId: '$categoryId',
-              },
-              pipeline: [
-                {
-                  $match: {
-                    userId: {
-                      $in: [userId, 'shared', 'default'],
-                    },
-                    type: { $in: arrayize(type).map(safeString) },
-                    langFrom: safeString(langFrom),
-                    langTo: safeString(langTo),
-                  },
-                },
-                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-              ],
-              as: 'c',
-            },
-          },
-          { $unwind: '$c' },
-          { $unwind: { $path: '$alt', preserveNullAndEmptyArrays: true } },
-          { $unwind: { $path: '$reading', preserveNullAndEmptyArrays: true } },
-          {
-            $unwind: {
-              $path: '$translation',
-              preserveNullAndEmptyArrays: true,
-            },
-          },
-          {
-            group: {
-              _id: 'entry',
-              cPriority: { $max: '$c.priority' },
-              priority: { $max: '$priority' },
-              frequency: { $max: '$frequency' },
-              alt: { $push: '$alt' },
-              reading: { $push: '$reading' },
-              translation: { $push: '$translation' },
-            },
-          },
-          {
-            $facet: {
-              result: [
-                {
-                  $sort: {
-                    cPriority: -1,
-                    priority: -1,
-                    frequency: -1,
-                  },
-                },
-                ...(iPage && iPerPage
-                  ? [{ $skip: (iPage - 1) * iPerPage }]
-                  : []),
-                ...((iPerPage || iLimit) && iLimit !== -1
-                  ? [{ $limit: iPerPage || iLimit }]
-                  : []),
-                {
-                  $project: Object.assign(
-                    { _id: 0 },
-                    reduceToObj(select.map((k) => [k, 1]))
-                  ),
-                },
-              ],
-              count: page ? [{ $count: 'count' }] : undefined,
-            },
-          },
-        ])
-
-        return {
-          result: r[0]?.result || [],
-          count: page ? dotProp.get(r[0] || {}, 'count.0.count', 0) : undefined,
-        }
+          userId,
+          type,
+          select,
+          page: iPage,
+          perPage: iPerPage,
+          limit: iLimit,
+          langFrom,
+          langTo,
+        })
       }
     )
   }
 
-  function doRandom() {
+  function postSearchExcluded() {
+    const sBody = S.shape({
+      q: sStringNonEmpty,
+      type: S.anyOf(myDictionaryType, S.list(myDictionaryType)),
+      select: S.list(S.string().enum('entry', 'alt', 'reading', 'translation')),
+      limit: S.integer().minimum(-1).optional(),
+      exclude: S.list(S.string()),
+      lang: S.string().enum('chinese').optional(),
+    })
+
+    const sResponse = S.shape({
+      result: S.list(myDictionaryItemPartial),
+      count: S.integer().minimum(0).optional(),
+    })
+
+    f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
+      '/search',
+      {
+        schema: {
+          tags,
+          summary: 'Look up Chinese dictionary containing the item',
+          body: sBody.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply): Promise<undefined | typeof sResponse.type> => {
+        reply.header('Cache-Control', 'no-cache')
+
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { q, type, select, limit = 10, lang } = req.body
+
+        const [langFrom, langTo] = arrayize(lang)
+
+        return await _doquery({
+          firstCond: {
+            $match: {
+              $text: {
+                $search: safeString(q),
+                $language: safeString(langFrom || 'chinese'),
+              },
+            },
+          },
+          userId,
+          type,
+          select,
+          limit,
+          langFrom,
+          langTo,
+        })
+      }
+    )
+  }
+
+  function getRandom() {
     const sQuery = S.shape({
       type: myDictionaryType,
       level: S.anyOf(
         sStringIntegerNonNegative,
         S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
       ).optional(),
+      select: S.list(S.string().enum('entry', 'alt', 'reading', 'translation')),
       lang: S.string().enum('chinese').optional(),
     })
 
     const sResponse = S.shape({
-      result: S.string().optional(),
-      translation: S.list(S.string()).optional(),
+      result: S.list(myDictionaryItemPartial),
+      count: S.integer().minimum(0).optional(),
     })
 
     f.get<typeof sQuery.type>(
@@ -437,93 +440,171 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { type, level = ['60'], lang } = req.query
+        const { type, level = ['60'], lang, select } = req.query
 
         const lvArr = arrayize(level).map((lv) => parseInt(lv))
         if (lvArr.length === 1) {
           lvArr.unshift(1)
         }
 
-        let [langFrom, langTo] = arrayize(lang) as string[]
-        langFrom = langFrom || 'chinese'
-        langTo = langTo || 'english'
+        const [langFrom, langTo] = arrayize(lang) as string[]
 
-        const r = await DbQuizModel.aggregate([
-          {
-            $match: {
-              userId,
-              nextReview: { $exists: true },
-            },
+        return await _doquery({
+          random: {
+            levelMin: lvArr[0],
+            levelMax: lvArr[1],
           },
-          {
-            $lookup: {
-              from: 'template',
-              localField: 'templateId',
-              foreignField: '_id',
-              as: 't',
-            },
-          },
-          { $unwind: '$t' },
-          {
-            $lookup: {
-              from: 'category',
-              let: {
-                categoryId: '$t.categoryId',
-              },
-              pipeline: [
-                {
-                  $match: {
-                    userId: {
-                      $in: [userId, 'shared', 'default'],
-                    },
-                    type: safeString(type),
-                    langFrom: safeString(langFrom),
-                    langTo: safeString(langTo),
-                  },
-                },
-                {
-                  $match: {
-                    $expr: [{ $eq: ['$_id', '$$categoryId'] }],
-                  },
-                },
-              ],
-              as: 'c',
-            },
-          },
-          { $unwind: '$c' },
-          {
-            $lookup: {
-              from: 'item',
-              let: {
-                categoryId: '$c._id',
-              },
-              pipeline: [
-                { $match: { $expr: { $eq: ['$categoryId', '$$categoryId'] } } },
-                {
-                  $match: {
-                    $and: [
-                      { level: { $gte: lvArr[0] || 1 } },
-                      { level: { $lte: lvArr[1] || 60 } },
-                    ],
-                  },
-                },
-                { $sample: { size: 1 } },
-              ],
-              as: 'it',
-            },
-          },
-          {
-            $project: {
-              _id: 0,
-              result: { $first: '$it.entry' },
-              translation: { $first: '$it.translation' },
-            },
-          },
-          { $limit: 1 },
-        ])
-
-        return r[0] || {}
+          userId,
+          type,
+          select,
+          limit: 1,
+          langFrom,
+          langTo,
+        })
       }
     )
+  }
+
+  async function _doquery(o: {
+    userId: string
+    firstCond?: any
+    random?: {
+      levelMin: number
+      levelMax: number
+    }
+    langFrom?: string
+    langTo?: string
+    type: string | string[]
+    page?: number
+    perPage?: number
+    limit?: number
+    select: string[]
+  }) {
+    o.langFrom = o.langFrom || 'chinese'
+    o.langTo = o.langTo || 'english'
+
+    const r = await DbItemModel.aggregate([
+      ...(o.firstCond ? [o.firstCond] : []),
+      ...(o.random
+        ? [
+            {
+              $match: {
+                $and: [
+                  { level: { $gte: o.random!.levelMin || 1 } },
+                  { level: { $lte: o.random!.levelMax || 60 } },
+                ],
+              },
+            },
+            {
+              $lookup: {
+                from: 'quiz',
+                let: {
+                  entry: '$entry',
+                },
+                pipeline: [
+                  { $match: { $expr: { $eq: ['$entry', '$$entry'] } } },
+                  {
+                    $match: {
+                      $and: [
+                        {
+                          userId: o.userId,
+                          nextReview: { $exists: true },
+                        },
+                      ],
+                    },
+                  },
+                ],
+                as: 'q',
+              },
+            },
+            { $match: { q: { $size: { $gt: 0 } } } },
+          ]
+        : []),
+      {
+        $lookup: {
+          from: 'category',
+          let: {
+            categoryId: '$categoryId',
+          },
+          pipeline: [
+            {
+              $match: {
+                userId: {
+                  $in: [o.userId, 'shared', 'default'],
+                },
+                type: { $in: arrayize(o.type).map(safeString) },
+                langFrom: safeString(o.langFrom),
+                langTo: safeString(o.langTo),
+              },
+            },
+            { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
+          ],
+          as: 'c',
+        },
+      },
+      ...(o.random
+        ? [
+            {
+              $match: {
+                c: { $size: { $gt: 0 } },
+              },
+            },
+            { $sample: { size: 1 } },
+          ]
+        : []),
+      { $unwind: '$c' },
+      { $unwind: { $path: '$alt', preserveNullAndEmptyArrays: true } },
+      { $unwind: { $path: '$reading', preserveNullAndEmptyArrays: true } },
+      {
+        $unwind: {
+          $path: '$translation',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        group: {
+          _id: 'entry',
+          cPriority: { $max: '$c.priority' },
+          priority: { $max: '$priority' },
+          frequency: { $max: '$frequency' },
+          alt: { $push: '$alt' },
+          reading: { $push: '$reading' },
+          translation: { $push: '$translation' },
+        },
+      },
+      {
+        $facet: {
+          result: [
+            {
+              $sort: {
+                cPriority: -1,
+                priority: -1,
+                frequency: -1,
+              },
+            },
+            ...(o.page && o.perPage
+              ? [{ $skip: (o.page - 1) * o.perPage }]
+              : []),
+            ...((o.perPage || o.limit) && o.limit !== -1
+              ? [{ $limit: o.perPage || o.limit }]
+              : []),
+            {
+              $project: Object.assign(
+                { _id: 0 },
+                reduceToObj(o.select.map((k) => [k, 1]))
+              ),
+            },
+          ],
+          count: o.page ? [{ $count: 'count' }] : undefined,
+        },
+      },
+    ])
+
+    return {
+      result: (r[0]?.result || []) as typeof myDictionaryItemPartial.type[],
+      count: o.page
+        ? dotProp.get<number>(r[0] || {}, 'count.0.count', 0)
+        : undefined,
+    }
   }
 }
