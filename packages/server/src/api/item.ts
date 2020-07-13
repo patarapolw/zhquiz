@@ -1,5 +1,4 @@
 import makePinyin from 'chinese-to-pinyin'
-import dotProp from 'dot-prop-immutable'
 import { DefaultHeaders, DefaultParams, FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
@@ -9,17 +8,10 @@ import {
   sDbItemExportPartial,
   sDbItemExportSelect,
 } from '@/db/mongo'
-import { arrayize, reduceToObj } from '@/util'
+import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
-import {
-  sDictionaryType,
-  sId,
-  sMaybeList,
-  sSort,
-  sStringIntegerNonNegative,
-  sStringNonEmpty,
-} from '@/util/schema'
+import { sDictionaryType, sId, sLang, sPagination, sSort } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['item']
@@ -42,17 +34,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getUserItems() {
     const sQuery = S.shape({
-      q: sStringNonEmpty.optional(),
-      select: sMaybeList(sDbItemExportSelect),
-      page: S.anyOf(
-        sStringIntegerNonNegative,
-        S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
-      ).optional(),
-      limit: S.anyOf(
-        sStringIntegerNonNegative,
-        S.string().enum('-1')
-      ).optional(),
-      sort: S.anyOf(mySort, S.list(mySort)).optional(),
+      q: S.string().optional(),
+      select: S.list(sDbItemExportSelect).minItems(1),
+      page: sPagination.optional(),
+      limit: S.integer().minimum(-1).optional(),
+      sort: S.list(mySort).optional(),
     })
 
     const sResponse = S.shape({
@@ -83,14 +69,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const {
           q,
           page: [page, perPage] = [],
-          limit = '10',
+          limit = 10,
           select,
-          sort = '-updatedAt',
+          sort = ['-updatedAt'],
         } = req.query
-
-        const [iPage, iPerPage, iLimit] = [page, perPage, limit].map((el) =>
-          parseInt(el)
-        )
 
         const r = await DbItemModel.aggregate([
           ...(q ? [{ $match: { entry: safeString(q) } }] : []),
@@ -127,7 +109,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             $facet: {
               result: [
                 {
-                  $sort: arrayize<string>(sort).reduce((prev, k) => {
+                  $sort: sort.reduce((prev, k) => {
                     if (k.startsWith('-')) {
                       prev[k.substr(1)] = -1
                     } else {
@@ -137,16 +119,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     return prev
                   }, {} as Record<string, -1 | 1>),
                 },
-                ...(iPage && iPerPage
-                  ? [{ $skip: (iPage - 1) * iPerPage }]
-                  : []),
-                ...((iPerPage || iLimit) && iLimit !== -1
-                  ? [{ $limit: iPerPage || iLimit }]
+                ...(page && perPage ? [{ $skip: (page - 1) * perPage }] : []),
+                ...((perPage || limit) && limit !== -1
+                  ? [{ $limit: perPage || limit }]
                   : []),
                 {
                   $project: Object.assign(
                     { _id: 0 },
-                    reduceToObj(arrayize(select).map((k) => [k, 1]))
+                    reduceToObj(select.map((k) => [k, 1]))
                   ),
                 },
               ],
@@ -156,8 +136,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         ])
 
         return {
-          result: r[0]?.result || [],
-          count: page ? dotProp.get(r[0] || {}, 'count.0.count', 0) : undefined,
+          result: (r[0] || {}).result || [],
+          count: page
+            ? (((r[0] || {}).count || [])[0] || {}).count || 0
+            : undefined,
         }
       }
     )
@@ -165,7 +147,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doCreate() {
     const sQuery = S.shape({
-      lang: S.string().enum('chinese').optional(),
+      lang: sLang.optional(),
     })
 
     const sBody = sDbItemExportPartial.required('entry')
@@ -192,10 +174,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const { lang } = req.query
-        let [langFrom, langTo] = arrayize(lang) as string[]
-        langFrom = langFrom || 'chinese'
-        langTo = langTo || 'english'
+        const { lang = [] } = req.query
+        const [langFrom = 'chinese', langTo = 'english'] = lang
 
         const { entry, reading, translation = [] } = req.body
 
@@ -217,8 +197,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                     userId: {
                       $in: [userId, 'shared', 'default'],
                     },
-                    langFrom: safeString(langFrom),
-                    langTo: safeString(langTo),
+                    langFrom,
+                    langTo,
                   },
                 },
                 { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
@@ -239,7 +219,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         if (existing[0]) {
           return {
-            type: dotProp.get(existing[0], 'type.0'),
+            type: (existing[0].type || [])[0],
           }
         }
 
@@ -250,8 +230,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                 $in: [userId, 'shared', 'default'],
               },
               type: { $exists: false },
-              langFrom: safeString(langFrom),
-              langTo: safeString(langTo),
+              langFrom,
+              langTo,
             },
           },
           {
@@ -305,10 +285,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doUpdate() {
     const sQuery = S.shape({
-      id: S.anyOf(sId, S.list(sId)),
+      id: sId.optional(),
     })
 
     const sBody = S.shape({
+      ids: S.list(sId).minItems(1).optional(),
       set: sDbItemExportPartial,
     })
 
@@ -333,10 +314,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { id } = req.query
-        const { set } = req.body
+        const { ids = [id], set } = req.body
+
+        if (!ids[0]) {
+          reply.status(304).send()
+          return
+        }
 
         await DbItemModel.updateMany(
-          { _id: { $in: arrayize(id) } },
+          { _id: { $in: ids.filter((id) => id).map((id) => id!) } },
           {
             $set: set,
           }
@@ -435,7 +421,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doDeleteEntry() {
     const sQuery = S.shape({
-      entry: sStringNonEmpty,
+      entry: S.string(),
     })
 
     f.delete<typeof sQuery.type>(

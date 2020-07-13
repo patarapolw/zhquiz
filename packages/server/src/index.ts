@@ -3,7 +3,6 @@ import path from 'path'
 import fastify from 'fastify'
 import helmet from 'fastify-helmet'
 import fStatic from 'fastify-static'
-import qs from 'query-string'
 
 import { mongoInit } from './util/mongo'
 import apiRouter from './api'
@@ -18,16 +17,6 @@ async function main() {
             prettyPrint: true,
           }
         : true,
-    querystringParser: (q) => {
-      const data: Record<string, string | string[]> = {}
-      Object.entries(qs.parse(q, { arrayFormat: 'comma' })).map(([k, v]) => {
-        if (v) {
-          data[k] = v
-        }
-      })
-
-      return data
-    },
   })
   const port = parseInt(process.env.PORT || '8080')
 

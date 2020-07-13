@@ -134,32 +134,47 @@ export async function loadChineseDictionaries() {
   `
   )
     .all()
-    .map(({ entry, sub, sup, variants, frequency, tag, pinyin, english }) => {
-      if (reHan1.test(entry)) {
-        tokenEntries.push(
-          ensureSchema(sDbToken, {
-            _id: entry,
-            sub: sub || undefined,
-            sup: sup || undefined,
-            variants: variants || undefined,
-          })
-        )
+    .map(
+      ({
+        entry,
+        sub: sub_,
+        sup: sup_,
+        variants: var_,
+        frequency,
+        tag,
+        pinyin,
+        english,
+      }) => {
+        if (reHan1.test(entry)) {
+          const [sub, sup, variants] = [sub_, sup_, var_]
+            .map((el: string = '') => el.match(reHan) || [])
+            .filter((a) => a.length)
 
-        if (english) {
-          jundaDictEntries.push(
-            ensureSchema(sDbItem, {
-              categoryId: jundaDict._id,
-              entry,
-              frequency: frequency || undefined,
-              level: hMap.get(entry),
-              tag: tag ? tag.split(' ') : undefined,
-              reading: [pinyin || makePinyin(entry, { keepRest: true })],
-              translation: [addSpaceToSlash(english)],
+          tokenEntries.push(
+            ensureSchema(sDbToken, {
+              _id: entry,
+              sub,
+              sup,
+              variants,
             })
           )
+
+          if (english) {
+            jundaDictEntries.push(
+              ensureSchema(sDbItem, {
+                categoryId: jundaDict._id,
+                entry,
+                frequency: frequency || undefined,
+                level: hMap.get(entry),
+                tag: tag ? tag.split(' ') : undefined,
+                reading: [pinyin || makePinyin(entry, { keepRest: true })],
+                translation: [addSpaceToSlash(english)],
+              })
+            )
+          }
         }
       }
-    })
+    )
 
   await Promise.all([
     DbItemModel.insertMany(jundaDictEntries, { ordered: false }),

@@ -4,10 +4,11 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
-    "dev": "ts-node-dev src/index.ts",
+    "dev": "yarn run-ts-dev src/index.ts",
     "prebuild": "yarn run-ts migrations/local.ts",
     "build": "tsc -P src/tsconfig.json",
-    "run-ts": "ts-node -r tsconfig-paths/register -O {\"module\":\"commonjs\",\"noExplicitAny\":false}"
+    "run-ts": "ts-node -r tsconfig-paths/register -O '{\"module\":\"commonjs\",\"noImplicitAny\":false}'",
+    "run-ts-dev": "ts-node-dev -r tsconfig-paths/register"
   },
   "keywords": [],
   "author": {
@@ -20,8 +21,6 @@
     "@typegoose/typegoose": "^7.0.0",
     "chinese-to-pinyin": "^1.3.1",
     "dayjs": "^1.8.25",
-    "dot-prop-immutable": "^2.1.0",
-    "escape-string-regexp": "^4.0.0",
     "fastify": "^2.13.1",
     "fastify-cookie": "^3.6.0",
     "fastify-helmet": "^3.0.2",
@@ -33,7 +32,6 @@
     "mongoose": "^5.9.10",
     "nanoid": "^3.1.3",
     "nodejieba": "^2.4.1",
-    "query-string": "^6.13.1",
     "xregexp": "^4.3.0"
   },
   "devDependencies": {

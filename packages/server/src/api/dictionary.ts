@@ -1,4 +1,3 @@
-import dotProp from 'dot-prop-immutable'
 import {
   DefaultHeaders,
   DefaultParams,
@@ -13,19 +12,26 @@ import {
   sDbItemExportPartial,
   sDbItemExportSelect,
 } from '@/db/mongo'
-import { arrayize, reduceToObj } from '@/util'
+import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
 import {
   sDictionaryType,
-  sMaybeList,
+  sLang,
+  sLevel,
+  sPagination,
   sSrsLevel,
-  sStringIntegerNonNegative,
-  sStringNonEmpty,
 } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['dictionary']
+  const myShapeDictionaryQuery = {
+    type: S.list(sDictionaryType).minItems(1),
+    select: S.list(sDbItemExportSelect).minItems(1),
+    lang: S.array()
+      .items([S.string().enum('chinese')])
+      .optional(),
+  }
 
   getLevel()
   getMatchAlt()
@@ -72,7 +78,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { lang } = req.query
-        let [langFrom, langTo] = arrayize(lang) as string[]
+        let [langFrom, langTo] = lang || []
         langFrom = langFrom || 'chinese'
         langTo = langTo || 'english'
 
@@ -152,10 +158,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getMatchAlt() {
     const sQuery = S.shape({
-      q: sStringNonEmpty,
-      type: sDictionaryType,
-      select: sMaybeList(sDbItemExportSelect),
-      lang: S.string().enum('chinese').optional(),
+      q: S.string(),
+      ...myShapeDictionaryQuery,
     })
 
     const sResponse = S.shape({
@@ -184,15 +188,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { q, type, select, lang } = req.query
-        const [langFrom, langTo] = arrayize(lang) as string[]
+        const [langFrom = 'chinese', langTo = 'english'] = lang || []
 
         return await _doquery({
           firstCond: {
             $match: { $or: [{ entry: q }, { alt: q }] },
           },
           userId,
-          type: arrayize(type),
-          select: arrayize(select),
+          type,
+          select,
           // limit: -1,
           langFrom,
           langTo,
@@ -203,10 +207,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getMatchExact() {
     const sQuery = S.shape({
-      q: sStringNonEmpty,
-      type: sDictionaryType,
-      select: sMaybeList(sDbItemExportSelect),
-      lang: S.string().enum('chinese').optional(),
+      q: S.string(),
+      ...myShapeDictionaryQuery,
     })
 
     const sResponse = S.shape({
@@ -233,9 +235,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const { q, type, select, lang } = req.query
+        const { q, type, select, lang = [] } = req.query
 
-        const [langFrom, langTo] = arrayize(lang) as string[]
+        const [langFrom = 'chinese', langTo = 'english'] = lang
 
         const {
           result: [result],
@@ -244,8 +246,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             $match: { entry: q },
           },
           userId,
-          type: arrayize(type),
-          select: arrayize(select),
+          type,
+          select,
           limit: 1,
           langFrom,
           langTo,
@@ -258,15 +260,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getSearch() {
     const sQuery = S.shape({
-      q: sStringNonEmpty,
-      type: S.anyOf(sDictionaryType, S.list(sDictionaryType)),
-      select: sMaybeList(sDbItemExportSelect),
-      page: S.anyOf(
-        sStringIntegerNonNegative,
-        S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
-      ).optional(),
-      limit: S.anyOf(sStringIntegerNonNegative, S.string().enum('-1')),
-      lang: S.string().enum('chinese').optional(),
+      q: S.string(),
+      ...myShapeDictionaryQuery,
+      page: sPagination.optional(),
+      limit: S.integer().minimum(-1),
     })
 
     const sResponse = S.shape({
@@ -299,30 +296,27 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           type,
           select,
           page: [page, perPage] = [],
-          limit = '10',
-          lang,
+          limit = 10,
+          lang = [],
         } = req.query
 
-        const [langFrom, langTo] = arrayize(lang)
-        const [iPage, iPerPage, iLimit] = [page, perPage, limit].map((el) =>
-          parseInt(el)
-        )
+        const [langFrom = 'chinese', langTo = 'english'] = lang
 
         return await _doquery({
           firstCond: {
             $match: {
               $text: {
                 $search: safeString(q),
-                $language: safeString(langFrom || 'chinese'),
+                $language: langFrom,
               },
             },
           },
           userId,
-          type: arrayize(type),
-          select: arrayize(select),
-          page: iPage,
-          perPage: iPerPage,
-          limit: iLimit,
+          type,
+          select,
+          page,
+          perPage,
+          limit,
           langFrom,
           langTo,
         })
@@ -332,12 +326,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function postSearchExcluded() {
     const sBody = S.shape({
-      q: sStringNonEmpty,
-      type: S.anyOf(sDictionaryType, S.list(sDictionaryType)),
-      select: S.list(S.string().enum('entry', 'alt', 'reading', 'translation')),
+      q: S.string(),
+      type: S.list(sDictionaryType).minItems(1),
+      select: S.list(sDbItemExportSelect).minItems(1),
       limit: S.integer().minimum(-1).optional(),
       exclude: S.list(S.string()),
-      lang: S.string().enum('chinese').optional(),
+      lang: sLang.optional(),
     })
 
     const sResponse = S.shape({
@@ -365,21 +359,21 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const { q, type, select, limit = 10, lang } = req.body
+        const { q, type, select, limit = 10, lang = [] } = req.body
 
-        const [langFrom, langTo] = arrayize(lang)
+        const [langFrom = 'chinese', langTo = 'english'] = lang
 
         return await _doquery({
           firstCond: {
             $match: {
               $text: {
                 $search: safeString(q),
-                $language: safeString(langFrom || 'chinese'),
+                $language: 'chinese',
               },
             },
           },
           userId,
-          type: arrayize(type),
+          type,
           select,
           limit,
           langFrom,
@@ -391,13 +385,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getRandom() {
     const sQuery = S.shape({
-      type: sDictionaryType,
-      level: S.anyOf(
-        sStringIntegerNonNegative,
-        S.list(sStringIntegerNonNegative).minItems(2).maxItems(2)
-      ).optional(),
-      select: sMaybeList(sDbItemExportSelect),
-      lang: S.string().enum('chinese').optional(),
+      level: sLevel.optional(),
+      ...myShapeDictionaryQuery,
     })
 
     const sResponse = S.shape({
@@ -425,23 +414,22 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const { type, level = ['60'], lang, select } = req.query
+        const { type, level = [60], lang = [], select } = req.query
 
-        const lvArr = arrayize(level).map((lv) => parseInt(lv))
-        if (lvArr.length === 1) {
-          lvArr.unshift(1)
+        if (level.length === 1) {
+          level.unshift(1)
         }
 
-        const [langFrom, langTo] = arrayize(lang) as string[]
+        const [langFrom = 'chinese', langTo = 'english'] = lang
 
         return await _doquery({
           random: {
-            levelMin: lvArr[0],
-            levelMax: lvArr[1],
+            levelMin: level[0],
+            levelMax: level[1],
           },
           userId,
-          type: arrayize(type),
-          select: arrayize(select),
+          type,
+          select,
           limit: 1,
           langFrom,
           langTo,
@@ -517,9 +505,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
                 userId: {
                   $in: [o.userId, 'shared', 'default'],
                 },
-                type: { $in: arrayize(o.type).map(safeString) },
-                langFrom: safeString(o.langFrom),
-                langTo: safeString(o.langTo),
+                type: { $in: o.type.map(safeString) },
+                langFrom: o.langFrom,
+                langTo: o.langTo,
               },
             },
             { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
@@ -576,7 +564,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             {
               $project: Object.assign(
                 { _id: 0 },
-                reduceToObj(arrayize(o.select).map((k) => [k, 1]))
+                reduceToObj(o.select.map((k) => [k, 1]))
               ),
             },
           ],
@@ -588,7 +576,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     return {
       result: (r[0]?.result || []) as typeof sDbItemExportPartial.type[],
       count: o.page
-        ? dotProp.get<number>(r[0] || {}, 'count.0.count', 0)
+        ? (((r[0] || {}).count || [])[0] || {}).count || 0
         : undefined,
     }
   }

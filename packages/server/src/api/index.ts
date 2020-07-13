@@ -42,6 +42,48 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   f.register(fCoookie)
   f.register(fSession, { secret: process.env.SECRET! })
 
+  f.addHook('preValidation', async (req) => {
+    if (req.query) {
+      Object.entries<string | string[] | undefined>(req.query).map(([k, v]) => {
+        const v0 = (Array.isArray(v) ? v[0] : v) || ''
+        if (v0) {
+          if (
+            [
+              'type',
+              'page',
+              'sort',
+              'stage',
+              'direction',
+              'tag',
+              'level',
+              'lang',
+            ].includes(k)
+          ) {
+            req.query[k] = v0.split(',').map((el) => {
+              if (['page', 'level'].includes(k)) {
+                return parseInt(el)
+              }
+
+              return el
+            })
+          } else if (k === 'limit') {
+            req.query[k] = parseInt(v0)
+          }
+        } else if (!v0.trim()) {
+          delete req.query[k]
+        }
+      })
+    }
+
+    if (req.body) {
+      Object.entries(req.body).map(([k, v]) => {
+        if (typeof v === 'string' && !v.trim()) {
+          delete req.body[k]
+        }
+      })
+    }
+  })
+
   f.addHook('preHandler', async (req) => {
     if (req.req.url && req.req.url.startsWith('/api/doc')) {
       return

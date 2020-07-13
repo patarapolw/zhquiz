@@ -3,8 +3,6 @@ import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 import jieba from 'nodejieba'
 
-import { sStringNonEmpty } from '@/util/schema'
-
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['chinese']
 
@@ -15,7 +13,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getJieba() {
     const sQuery = S.shape({
-      q: sStringNonEmpty,
+      q: S.string(),
     })
     const sResponse = S.shape({
       result: S.list(S.string()),
@@ -45,10 +43,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getPinyin() {
     const sQuery = S.shape({
-      q: sStringNonEmpty,
+      q: S.string(),
     })
     const sResponse = S.shape({
-      result: sStringNonEmpty,
+      result: S.string(),
     })
 
     f.get<typeof sQuery.type>(

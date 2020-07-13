@@ -14,17 +14,15 @@ import {
   sDbQuizExportSelect,
   sQuizStat,
 } from '@/db/mongo'
-import { arrayize, reduceToObj } from '@/util'
+import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
 import {
   sDateTime,
   sDictionaryType,
   sId,
-  sListStringNonEmpty,
-  sMaybeList,
+  sLang,
   sSrsLevel,
-  sStringNonEmpty,
 } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
@@ -47,7 +45,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getById() {
     const sQuery = S.shape({
       id: sId,
-      select: sMaybeList(sDbQuizExportSelect),
+      select: S.list(sDbQuizExportSelect).minItems(1),
     })
 
     const sResponse = sDbQuizExportPartial
@@ -78,10 +76,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             _id: id,
             userId,
           }).select(
-            Object.assign(
-              { _id: 0 },
-              reduceToObj(arrayize(select).map((k) => [k, 1]))
-            )
+            Object.assign({ _id: 0 }, reduceToObj(select.map((k) => [k, 1])))
           )) || ({} as any)
 
         return r
@@ -130,7 +125,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           {
             $project: Object.assign(
               { _id: 0 },
-              reduceToObj(arrayize(select).map((k) => [k, 1]))
+              reduceToObj(select.map((k) => [k, 1]))
             ),
           },
         ])
@@ -142,11 +137,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getByEntry() {
     const sQuery = S.shape({
-      entry: sStringNonEmpty,
-      select: sMaybeList(sDbQuizExportSelect),
-      type: S.anyOf(sDictionaryType, S.string().enum('user')),
-      lang: S.string().enum('chinese').optional(),
-      limit: S.string().enum('-1').optional(),
+      entry: S.string(),
+      select: S.list(sDbQuizExportSelect).minItems(1),
+      type: S.array().items([
+        S.anyOf(sDictionaryType, S.string().enum('user')),
+      ]),
+      lang: sLang.optional(),
+      limit: S.integer().minimum(-1).optional(),
     })
 
     const sResponse = S.shape({
@@ -171,15 +168,20 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const { entry, select, type, lang } = req.query
+        const {
+          entry,
+          select,
+          type: [type],
+          lang = [],
+        } = req.query
 
         return {
           result: await _quizGet({
             userId,
             entries: [entry],
             type,
-            select: arrayize(select),
-            lang: arrayize(lang),
+            select,
+            lang,
           }),
         }
       }
@@ -234,9 +236,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   async function _quizGet(o: {
     userId: string
     entries: string[]
-    lang: (string | undefined)[]
+    lang: string[]
     type: string
-    select: string | string[]
+    select: string[]
   }) {
     return await DbQuizModel.aggregate([
       {
@@ -279,10 +281,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         $group: {
           _id: 0,
           ...reduceToObj(
-            arrayize(o.select).map((k) => [
-              k,
-              k === '_id' ? 1 : { $first: `$${k}` },
-            ])
+            o.select.map((k) => [k, k === '_id' ? 1 : { $first: `$${k}` }])
           ),
         },
       },
@@ -379,11 +378,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const myStage = S.string().enum('new', 'leech', 'learning', 'graduated')
 
     const sQuery = S.shape({
-      type: S.anyOf(myType, S.list(myType)),
-      stage: S.anyOf(myStage, S.list(myStage)),
-      direction: S.anyOf(S.string(), S.list(S.string())),
+      type: S.list(myType),
+      stage: S.list(myStage),
+      direction: S.list(S.string()),
       isDue: S.string().enum('1').optional(),
-      tag: S.anyOf(S.string(), S.list(S.string())),
+      tag: S.list(S.string()).optional(),
     })
 
     const sQuizItem = S.shape({
@@ -420,19 +419,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           }
         }
 
-        const {
-          type: _type,
-          stage: _stage,
-          direction: _direction,
-          isDue: _isDue,
-          tag: _tag,
-        } = req.query
+        const { type, stage, direction, isDue: _isDue, tag } = req.query
 
-        const type = arrayize(_type)
-        const stage = arrayize(_stage)
-        const direction = arrayize(_direction)
         const isDue = !!_isDue
-        const tag = arrayize(_tag)
 
         /**
          * No need to await
@@ -562,9 +551,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doCreateByEntry() {
     const sBody = S.shape({
-      entries: S.list(sStringNonEmpty),
+      entries: S.list(S.string()),
       type: sDictionaryType.optional(),
-      lang: S.string().enum('chinese').optional(),
+      lang: sLang.optional(),
     })
 
     f.put<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
@@ -582,11 +571,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { entries, type, lang } = req.body
-
-        let [langFrom, langTo] = arrayize(lang) as string[]
-        langFrom = langFrom || 'chinese'
-        langTo = langTo || 'english'
+        const {
+          entries,
+          type,
+          lang: [langFrom = 'chinese', langTo = 'english'] = [],
+        } = req.body
 
         const templateIds = (
           await DbCategoryModel.aggregate([
@@ -594,8 +583,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
               $match: {
                 userId: { $in: [userId, 'shared', 'default'] },
                 type: safeString(type),
-                langFrom: safeString(langFrom),
-                langTo: safeString(langTo),
+                langFrom,
+                langTo,
               },
             },
             { $sort: { priority: -1 } },
@@ -641,7 +630,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         front: S.string().optional(),
         back: S.string().optional(),
         mnemonic: S.string().optional(),
-        tag: sListStringNonEmpty.optional(),
+        tag: S.list(S.string()).optional(),
       }),
     })
 
@@ -664,8 +653,22 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const { id } = req.query
         const { set } = req.body
 
+        const $set: any = {}
+        const $unset: any = {}
+
+        Object.entries(set).map(([k, v]) => {
+          if (v === '') {
+            $unset[k] = ''
+          } else if (Array.isArray(v) && v.length === 0) {
+            $unset[k] = ''
+          } else {
+            $set[k] = v
+          }
+        })
+
         await DbQuizModel.findByIdAndUpdate(id, {
-          $set: set,
+          $set,
+          $unset,
         })
 
         reply.status(201).send()

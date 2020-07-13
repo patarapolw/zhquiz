@@ -18,6 +18,17 @@ export async function loadChineseTemplate() {
     }
   }
 
+  console.log(
+    Object.keys(template).map((type) => ({
+      name: 'zhquiz-card-template',
+      langFrom: 'chinese',
+      langTo: 'english',
+      type: type !== 'extra' ? type : undefined,
+      userId: ['default'],
+      tag: ['template', 'zhquiz'],
+    }))
+  )
+
   const cats = await DbCategoryModel.insertMany(
     Object.keys(template).map((type) => ({
       name: 'zhquiz-card-template',
@@ -33,7 +44,9 @@ export async function loadChineseTemplate() {
     Object.entries(template).flatMap(([type, m]) =>
       Object.entries(m).map(
         ([direction, { front, back, required: requiredFields }]) => ({
-          categoryId: cats.filter((c) => c.type === type)[0]._id,
+          categoryId: cats.filter((c) => {
+            return c.type === (type !== 'extra' ? type : undefined)
+          })[0]._id,
           direction,
           front,
           back,

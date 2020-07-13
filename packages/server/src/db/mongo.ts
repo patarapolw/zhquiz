@@ -5,8 +5,8 @@ import {
   setGlobalOptions,
   Severity,
 } from '@typegoose/typegoose'
-import dotProp from 'dot-prop-immutable'
 import S from 'jsonschema-definer'
+import { Schema } from 'mongoose'
 import { nanoid } from 'nanoid'
 import XRegExp from 'xregexp'
 
@@ -37,7 +37,7 @@ export class DbUser {
   @prop({ default: 'chinese' }) langFrom?: string
   @prop({ default: 'english' }) langTo?: string
   @prop({
-    validate: (s) => typeof s === 'undefined' || !!sUserSettings.validate(s)[1],
+    validate: (s) => typeof s === 'undefined' || !sUserSettings.validate(s)[1],
   })
   settings?: typeof sUserSettings.type
 
@@ -82,7 +82,7 @@ export const sQuizStat = S.shape({
   }),
   lastRight: sDateTime.optional(),
   lastWrong: sDateTime.optional(),
-}).partial()
+})
 
 export const sDbQuizExportSelect = S.string().enum(
   '_id',
@@ -115,11 +115,16 @@ export class DbQuiz implements IDbQuizExportPartial {
   @prop() front?: string
   @prop() back?: string
   @prop() mnemonic?: string
-  @prop() tag?: string[]
+  @prop({
+    type: Schema.Types.Mixed,
+    validate: (s: string[] = []) => s.every((s0) => typeof s0 === 'string'),
+  })
+  tag?: string[]
+
   @prop() nextReview?: Date
   @prop() srsLevel?: number
   @prop({
-    validate: (s) => typeof s === 'undefined' || !!sQuizStat.validate(s)[1],
+    validate: (s) => typeof s === 'undefined' || !sQuizStat.validate(s)[1],
   })
   stat?: typeof sQuizStat.type
 
@@ -137,45 +142,30 @@ export class DbQuiz implements IDbQuizExportPartial {
 
   private _updateSrsLevel(dSrsLevel: number) {
     return () => {
-      this.stat = this.stat || {}
+      this.stat = this.stat || {
+        streak: {
+          right: 0,
+          wrong: 0,
+          maxRight: 0,
+          maxWrong: 0,
+        },
+      }
 
       if (dSrsLevel > 0) {
-        this.stat = dotProp.set(
-          this.stat,
-          'streak.right',
-          dotProp.get(this.stat, 'streak.right', 0) + 1
-        )
-        this.stat = dotProp.set(this.stat, 'streak.wrong', 0)
-        this.stat = dotProp.set(this.stat, 'lastRight', new Date())
+        this.stat.streak.right++
+        this.stat.streak.wrong = 0
+        this.stat.lastRight = new Date()
 
-        if (
-          dotProp.get(this.stat, 'streak.right', 1) >
-          dotProp.get(this.stat, 'streak.maxRight', 0)
-        ) {
-          this.stat = dotProp.set(
-            this.stat,
-            'streak.maxRight',
-            dotProp.get(this.stat, 'streak.right', 1)
-          )
+        if (this.stat.streak.right > this.stat.streak.maxRight) {
+          this.stat.streak.maxRight = this.stat.streak.right
         }
       } else if (dSrsLevel < 0) {
-        this.stat = dotProp.set(
-          this.stat,
-          'streak.wrong',
-          dotProp.get(this.stat, 'streak.wrong', 0) + 1
-        )
-        this.stat = dotProp.set(this.stat, 'streak.right', 0)
-        this.stat = dotProp.set(this.stat, 'lastWrong', new Date())
+        this.stat.streak.wrong++
+        this.stat.streak.right = 0
+        this.stat.lastWrong = new Date()
 
-        if (
-          dotProp.get(this.stat, 'streak.wrong', 1) >
-          dotProp.get(this.stat, 'streak.maxWrong', 0)
-        ) {
-          this.stat = dotProp.set(
-            this.stat,
-            'streak.maxWrong',
-            dotProp.get(this.stat, 'streak.wrong', 1)
-          )
+        if (this.stat.streak.wrong > this.stat.streak.maxWrong) {
+          this.stat.streak.maxWrong = this.stat.streak.wrong
         }
       }
 
@@ -216,10 +206,14 @@ export const sDbCategoryExportPartial = S.shape({
 
 type IDbCategoryExportPartial = typeof sDbCategoryExportPartial.type
 
-@index({ name: 1, language: 1, type: 1 }, { unique: true })
+@index({ name: 1, langFrom: 1, langTo: 1, type: 1 }, { unique: true })
 export class DbCategory implements IDbCategoryExportPartial {
   @prop({ default: () => nanoid() }) _id!: string
-  @prop({ required: true, validate: (u: string[]) => u.length > 0 })
+  @prop({
+    required: true,
+    type: Schema.Types.Mixed,
+    validate: (s: string[] = []) => s.every((s0) => typeof s0 === 'string'),
+  })
   userId!: string[]
 
   @prop({ required: true }) name!: string
@@ -227,13 +221,17 @@ export class DbCategory implements IDbCategoryExportPartial {
   @prop({ required: true }) langTo!: string
   @prop({
     validate: (s) =>
-      typeof s !== 'undefined' && !!sDictionaryType.validate(s)[1],
+      typeof s !== 'undefined' && !sDictionaryType.validate(s)[1],
   })
   type?: typeof sDictionaryType.type
 
   @prop() priority?: number
 
-  @prop() tag?: string[]
+  @prop({
+    type: Schema.Types.Mixed,
+    validate: (s: string[] = []) => s.every((s0) => typeof s0 === 'string'),
+  })
+  tag?: string[]
 
   static async purgeMany(userId: string, cond?: any) {
     cond = cond
@@ -335,7 +333,12 @@ export class DbTemplate implements IDbTemplateExportPartial {
   @prop({ default: () => nanoid() }) _id!: string
   @prop({ required: true }) categoryId!: string
   @prop({ required: true }) direction!: string
-  @prop() requiredFields?: string[]
+  @prop({
+    type: Schema.Types.Mixed,
+    validate: (s: string[] = []) => s.every((s0) => typeof s0 === 'string'),
+  })
+  requiredFields?: string[]
+
   @prop({ required: true }) front!: string
   @prop() back?: string
 }
@@ -383,11 +386,32 @@ class DbItem implements IDbItem, IDbItemExportPartial {
   @prop({ default: () => nanoid() }) _id?: string
   @prop({ required: true }) categoryId!: string
   @prop({ required: true, text: true }) entry!: string
-  @prop({ text: true }) alt?: string[]
-  @prop() reading?: string[]
-  @prop() translation?: string[]
+  @prop({
+    type: Schema.Types.Mixed,
+    validate: (s: string[] = []) => s.every((s0) => typeof s0 === 'string'),
+    text: true,
+  })
+  alt?: string[]
+
+  @prop({
+    type: Schema.Types.Mixed,
+    validate: (s: string[] = []) => s.every((s0) => typeof s0 === 'string'),
+  })
+  reading?: string[]
+
+  @prop({
+    type: Schema.Types.Mixed,
+    validate: (s: string[] = []) => s.every((s0) => typeof s0 === 'string'),
+  })
+  translation?: string[]
+
   @prop() level?: number
-  @prop() tag?: string[]
+  @prop({
+    type: Schema.Types.Mixed,
+    validate: (s: string[] = []) => s.every((s0) => typeof s0 === 'string'),
+  })
+  tag?: string[]
+
   @prop() priority?: number
   @prop() frequency?: number
 }

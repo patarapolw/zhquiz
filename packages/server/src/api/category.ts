@@ -6,9 +6,9 @@ import {
   sDbCategoryExportPartial,
   sDbCategoryExportSelect,
 } from '@/db/mongo'
-import { arrayize, reduceToObj } from '@/util'
+import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
-import { sId, sMaybeList } from '@/util/schema'
+import { sId } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['category']
@@ -20,7 +20,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getById() {
     const sQuery = S.shape({
       id: sId,
-      select: sMaybeList(sDbCategoryExportSelect),
+      select: S.list(sDbCategoryExportSelect).minItems(1),
     })
 
     const sResponse = S.shape({
@@ -58,7 +58,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           {
             $project: Object.assign(
               { _id: 0 },
-              reduceToObj(arrayize(select).map((k) => [k, 1]))
+              reduceToObj(select.map((k) => [k, 1]))
             ),
           },
         ])

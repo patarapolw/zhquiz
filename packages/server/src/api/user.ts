@@ -7,7 +7,6 @@ import {
 import S from 'jsonschema-definer'
 
 import { DbUserModel } from '@/db/mongo'
-import { arrayize } from '@/util'
 import { checkAuthorize } from '@/util/api'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
@@ -31,7 +30,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           )
 
     const sQuery = S.shape({
-      select: S.anyOf(mySelect, S.list(mySelect)),
+      select: S.list(mySelect).minItems(1),
     })
 
     f.get<typeof sQuery.type>(
@@ -51,7 +50,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const { select } = req.query
         const u = req.session.user
 
-        return arrayize(select).reduce(
+        return select.reduce(
           (prev, k) => ({ ...prev, [k]: u[k] }),
           {} as Record<string, any>
         )
