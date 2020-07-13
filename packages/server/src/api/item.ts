@@ -369,29 +369,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { id } = req.query
 
-        const its = await DbItemModel.aggregate([
-          { $match: { _id: id } },
-          {
-            $lookup: {
-              from: 'category',
-              let: {
-                categoryId: '$categoryId',
-              },
-              pipeline: [
-                {
-                  $match: {
-                    userId,
-                    type: { $exists: false },
-                  },
-                },
-                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-              ],
-              as: 'c',
-            },
-          },
-          { $match: { c: { $size: { $gt: 0 } } } },
-          { $project: { _id: 1 } },
-        ])
+        const its = await _getUserItem<{
+          _id: string
+        }>({
+          preConds: [{ $match: { _id: id } }],
+          postConds: [{ $project: { _id: 1 } }],
+          userId,
+        })
 
         if (its.length > 0) {
           await DbItemModel.deleteOne({ _id: { $in: its.map((it) => it._id) } })
@@ -426,31 +410,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { ids } = req.query
 
-        const its = (
-          await DbItemModel.aggregate([
-            { $match: { _id: { $in: ids } } },
-            {
-              $lookup: {
-                from: 'category',
-                let: {
-                  categoryId: '$categoryId',
-                },
-                pipeline: [
-                  {
-                    $match: {
-                      userId,
-                      type: { $exists: false },
-                    },
-                  },
-                  { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-                ],
-                as: 'c',
-              },
-            },
-            { $match: { c: { $size: { $gt: 0 } } } },
-            { $project: { _id: 1 } },
-          ])
-        ).map((it) => it._id)
+        const its = await _getUserItem<{
+          _id: string
+        }>({
+          preConds: [{ $match: { _id: { $in: ids } } }],
+          postConds: [{ $project: { _id: 1 } }],
+          userId,
+        })
 
         if (its.length > 0) {
           await DbItemModel.deleteMany({
@@ -488,34 +454,47 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { entry } = req.query
-
-        const its = await DbItemModel.aggregate([
-          { $match: { entry: safeString(entry) } },
-          {
-            $lookup: {
-              from: 'category',
-              let: {
-                categoryId: '$categoryId',
-              },
-              pipeline: [
-                {
-                  $match: {
-                    userId,
-                    type: { $exists: false },
-                  },
-                },
-                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-              ],
-              as: 'c',
-            },
-          },
-          { $match: { c: { $size: { $gt: 0 } } } },
-          { $project: { _id: 1 } },
-        ])
+        const its = await _getUserItem<{
+          _id: string
+        }>({
+          preConds: [{ $match: { entry: safeString(entry) } }],
+          postConds: [{ $project: { _id: 1 } }],
+          userId,
+        })
 
         await DbItemModel.deleteMany({ _id: { $in: its.map((it) => it._id) } })
         reply.status(201).send()
       }
     )
+  }
+
+  async function _getUserItem<T>(o: {
+    preConds: any[]
+    postConds: any[]
+    userId: string
+  }) {
+    return (await DbItemModel.aggregate([
+      ...o.preConds,
+      {
+        $lookup: {
+          from: 'category',
+          let: {
+            categoryId: '$categoryId',
+          },
+          pipeline: [
+            {
+              $match: {
+                userId: o.userId,
+                type: { $exists: false },
+              },
+            },
+            { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
+          ],
+          as: 'c',
+        },
+      },
+      { $match: { c: { $size: { $gt: 0 } } } },
+      ...o.postConds,
+    ])) as T[]
   }
 }

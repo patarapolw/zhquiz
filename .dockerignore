@@ -7,7 +7,6 @@
 
 !/packages/nuxt/dist
 !/packages/server/dist
-!/packages/server/assets/hsk.yaml
 !/packages/server/assets/zh.loki
 !/packages/server/package.json
 !/packages/server/yarn.lock
