@@ -18,17 +18,6 @@ export async function loadChineseTemplate() {
     }
   }
 
-  console.log(
-    Object.keys(template).map((type) => ({
-      name: 'zhquiz-card-template',
-      langFrom: 'chinese',
-      langTo: 'english',
-      type: type !== 'extra' ? type : undefined,
-      userId: ['default'],
-      tag: ['template', 'zhquiz'],
-    }))
-  )
-
   const cats = await DbCategoryModel.insertMany(
     Object.keys(template).map((type) => ({
       name: 'zhquiz-card-template',

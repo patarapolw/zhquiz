@@ -147,7 +147,7 @@ export async function loadChineseDictionaries() {
       }) => {
         if (reHan1.test(entry)) {
           const [sub, sup, variants] = [sub_, sup_, var_]
-            .map((el: string = '') => el.match(reHan) || [])
+            .map((el: string | null) => (el || '').match(reHan) || [])
             .filter((a) => a.length)
 
           tokenEntries.push(
