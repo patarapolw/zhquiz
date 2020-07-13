@@ -444,30 +444,32 @@ export default class HanziPage extends Vue {
           type: 'vocab',
           select: ['entry', 'alt', 'reading', 'translation'],
           limit: 10,
-          exclude: Object.keys(this.dict.vocab),
+          exclude: Object.keys(this.dict.vocab).filter((v) =>
+            v.includes(this.current!)
+          ),
         }),
         this.$axios.$post('/api/dictionary/search', {
           q: this.current,
           type: 'sentence',
           select: ['entry', 'translation'],
           limit: 10,
-          exclude: Object.keys(this.dict.sentence),
+          exclude: Object.keys(this.dict.sentence).filter((s) =>
+            s.includes(this.current!)
+          ),
         }),
       ])
 
-      if (rRad) {
-        this.tokenDict[this.current] = {
-          sub: rRad.sub || [],
-          sup: rRad.sup || [],
-          variants: rRad.variants || [],
-        }
+      if (rRad?.result) {
+        const { sub = [], sup = [], variants = [] } = rRad.result
+        this.tokenDict[this.current] = { sub, sup, variants }
+        this.$set(this.tokenDict, this.current, { sub, sup, variants })
       }
 
-      ;(rVocab.result as IDictionaryItem[]).map((r) => {
+      ;((rVocab.result as IDictionaryItem[]) || []).map((r) => {
         this.dict.vocab[r.entry] = r
       })
-      ;(rSentence.result as IDictionaryItem[]).map((r) => {
-        this.dict.vocab[r.entry] = r
+      ;((rSentence.result as IDictionaryItem[]) || []).map((r) => {
+        this.dict.sentence[r.entry] = r
       })
       this.$set(this, 'dict', this.dict)
     }
@@ -477,7 +479,7 @@ export default class HanziPage extends Vue {
     const { entry, type } = this.selected
 
     if (entry && type) {
-      const { result } = await this.$axios.$get('/api/quiz/entry', {
+      const { result = [] } = await this.$axios.$get('/api/quiz/entry', {
         params: {
           entry,
           type,

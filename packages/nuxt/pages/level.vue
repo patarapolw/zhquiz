@@ -230,7 +230,7 @@ export default class LevelPage extends Vue {
 
   async reload(...entries: string[]) {
     const {
-      result,
+      result = [],
     }: {
       result: {
         entry: string
@@ -274,7 +274,7 @@ export default class LevelPage extends Vue {
     if (this.selected.entries.length) {
       const { entries } = this.selected
 
-      const { result } = await this.$axios.$post('/api/quiz/entries', {
+      const { result = [] } = await this.$axios.$post('/api/quiz/entries', {
         entries,
         type: 'vocab',
         select: ['_id'],

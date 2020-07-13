@@ -364,13 +364,11 @@ export default class VocabPage extends Vue {
 
   async onQChange(q = this.q) {
     if (q) {
-      let qs = (
-        await this.$axios.$get('/api/chinese/jieba', {
-          params: { q },
-        })
-      ).result as string[]
+      const { result } = await this.$axios.$get('/api/chinese/jieba', {
+        params: { q },
+      })
 
-      qs = qs
+      const qs = (result as string[])
         .filter((h) => XRegExp('\\p{Han}+').test(h))
         .filter((h, i, arr) => arr.indexOf(h) === i)
 
@@ -407,7 +405,7 @@ export default class VocabPage extends Vue {
         type: 'sentence',
         select: ['entry', 'translation'],
         limit: 10,
-        exclude: Object.keys(this.dict.sentence),
+        exclude: Object.keys(this.dict.sentence).filter((s) => s.includes(c!)),
       }),
     ])
 

@@ -177,14 +177,17 @@ export default class ExtraPage extends Vue {
   async loadPage(reset?: boolean) {
     const p = reset ? 1 : this.page
 
-    const { result, count } = await this.$axios.$get('/api/item/search', {
-      params: {
-        type: 'user',
-        select: ['entry', 'reading', 'translation'],
-        page: [p, this.perPage],
-        sort: `${this.sort.type === 'desc' ? '-' : ''}${this.sort.key}`,
-      },
-    })
+    const { result = [], count = 0 } = await this.$axios.$get(
+      '/api/item/search',
+      {
+        params: {
+          type: 'user',
+          select: ['entry', 'reading', 'translation'],
+          page: [p, this.perPage],
+          sort: `${this.sort.type === 'desc' ? '-' : ''}${this.sort.key}`,
+        },
+      }
+    )
 
     this.page = p
     this.tableData = result

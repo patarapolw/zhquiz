@@ -1,7 +1,7 @@
 import dayjs from 'dayjs'
 import Vue from 'vue'
 
-import { humanizeDuration } from '~/assets/util'
+import { humanizeDuration } from '~/assets/humanize-duration'
 
 Vue.filter('format', (v: any) => {
   if (typeof v === 'number') {

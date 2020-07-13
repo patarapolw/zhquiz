@@ -455,6 +455,8 @@
 <script lang="ts">
 import { Component, Vue } from 'nuxt-property-decorator'
 
+import { sample } from '../assets/util'
+
 import { doClick, doMapKeypress } from '~/assets/keypress'
 import { markdownToHtml } from '~/assets/make-html'
 import { speak } from '~/assets/speak'
@@ -467,6 +469,7 @@ interface ITemplate {
   categoryId: string
   front: string
   back?: string
+  requiredFields?: string[]
   _meta?: {
     direction?: string
   }
@@ -705,15 +708,24 @@ export default class QuizPage extends Vue {
     const data = this.dictionaryData[cat.type][entry]
 
     if (cat.type === 'vocab') {
-      const sentences = this.dictionaryData.sentence[entry]
-      if (data && sentences) {
-        return { data, sentences }
+      if (data) {
+        return {
+          ...data,
+          sentences: sample(
+            Object.values(this.dictionaryData.sentence).filter(
+              ({ entry: s }) => {
+                return s.includes(entry)
+              }
+            ),
+            10
+          ),
+        }
       } else {
         return null
       }
     }
 
-    return data ? { data } : null
+    return data || null
   }
 
   previewRender(md: string) {
@@ -745,7 +757,8 @@ export default class QuizPage extends Vue {
       return ''
     }
 
-    const md = (this.templateData[templateId] || {})[side] || ''
+    const t = this.templateData[templateId] || {}
+    const md = t[side] || ''
     const ctx = this.renderContext(entry, templateId)
 
     const html = markdownToHtml(md, {
@@ -790,7 +803,7 @@ export default class QuizPage extends Vue {
         // eslint-disable-next-line no-console
       })().catch(console.error),
       (async () => {
-        const { tags } = await this.$axios.$get('/api/quiz/tag/all')
+        const { tags = [] } = await this.$axios.$get('/api/quiz/tag/all')
         this.allTags = tags
 
         // eslint-disable-next-line no-console
@@ -933,12 +946,13 @@ export default class QuizPage extends Vue {
 
     let q = this.quizData[quizId]
     if (!q || !q.templateId || !q.entry) {
-      q = await this.$axios.$get('/api/quiz', {
+      const { result = {} } = await this.$axios.$get('/api/quiz', {
         params: {
           id: quizId,
           select: ['entry', 'templateId', 'front', 'back', 'mnemonic'],
         },
       })
+      q = result as any
       q._id = quizId
       q.templateId = q.templateId as string
       q.entry = q.entry as string
@@ -948,12 +962,13 @@ export default class QuizPage extends Vue {
 
     let t = this.templateData[q.templateId]
     if (!t) {
-      t = await this.$axios.$get('/api/template', {
+      const { result = {} } = await this.$axios.$get('/api/template', {
         params: {
           id: q.templateId,
           select: ['categoryId', 'front', 'back'],
         },
       })
+      t = result as any
       t._id = q.templateId
 
       this.$set(this.templateData, q.templateId, t)
@@ -961,55 +976,65 @@ export default class QuizPage extends Vue {
 
     let cat = this.categoryData[t.categoryId]
     if (!cat) {
-      cat = await this.$axios.$get('/api/category', {
+      const { result } = await this.$axios.$get('/api/category', {
         params: {
           id: t.categoryId,
           select: ['type'],
         },
       })
-      cat._id = t.categoryId
-
-      this.$set(this.categoryData, t.categoryId, cat)
+      if (result) {
+        cat = result
+        cat._id = t.categoryId
+        this.$set(this.categoryData, t.categoryId, cat)
+      }
     }
 
     let data = this.dictionaryData[cat.type][q.entry]
     if (!data || !data.reading) {
-      data = await this.$axios.$get('/api/dictionary/matchExact', {
-        params: {
-          q: q.entry,
-          select: ['entry', 'alt', 'reading', 'translation'],
-        },
-      })
+      data = (
+        await this.$axios.$get('/api/dictionary/matchExact', {
+          params: {
+            q: q.entry,
+            select: ['entry', 'alt', 'reading', 'translation'],
+          },
+        })
+      ).result || { entry: q.entry }
 
-      this.$set(
-        this.dictionaryData[cat.type],
-        q.entry,
-        data || { entry: q.entry }
-      )
+      this.$set(this.dictionaryData[cat.type], q.entry, data)
     }
 
     if (cat.type === 'vocab') {
-      let sentences = Object.entries(this.dictionaryData.sentence)
-        .filter(([entry]) => entry.includes(q.entry!))
-        .map(([, content]) => content)
-        .sort(() => 0.5 - Math.random())
-        .slice(0, 10)
+      const existingSentences = Object.keys(
+        this.dictionaryData.sentence
+      ).filter((s) => s.includes(q.entry!))
 
-      if (sentences.length < 10) {
-        sentences = (
-          await this.$axios.$post('/api/dictionary/search', {
-            q: q.entry,
-            select: ['entry', 'translation'],
-            type: 'sentence',
-            limit: 10,
-            exclude: Object.keys(this.dictionaryData.sentence),
-          })
-        ).result
+      if (existingSentences.length < 10) {
+        const sentences =
+          (
+            await this.$axios.$post('/api/dictionary/search', {
+              q: q.entry,
+              select: ['entry', 'translation'],
+              type: 'sentence',
+              limit: 10,
+              exclude: existingSentences,
+            })
+          ).result || []
 
-        sentences.map((content) => {
-          this.dictionaryData.sentence[content.entry] = content
-          this.$set(this.dictionaryData.sentence, content.entry, content)
-        })
+        sentences.map(
+          ({
+            entry,
+            translation,
+          }: {
+            entry: string
+            translation?: string[]
+          }) => {
+            this.dictionaryData.sentence[entry] = { entry, translation }
+            this.$set(this.dictionaryData.sentence, entry, {
+              entry,
+              translation,
+            })
+          }
+        )
       }
     }
 
@@ -1157,11 +1182,12 @@ export default class QuizPage extends Vue {
         .slice((this.page - 1) * this.perPage, this.page * this.perPage)
         .map((q) => {
           const t = q.templateId ? this.templateData[q.templateId] : null
+          const cat = t ? this.categoryData[t.categoryId] : null
 
           return {
             quizId: q._id,
             templateId: t?._id,
-            type: t?.type,
+            type: cat?.type,
             entry: q.entry,
             direction: t?._meta?.direction,
             tag: q._meta?.tag || [],
