@@ -79,96 +79,49 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           sort = ['-updatedAt'],
         } = req.query
 
-        if (q) {
-          await DbItemModel.find({ entry: safeString(q) })
-            .select('_id templateId')
-            .then(async (its) => {
-              if (its.length) {
-                return Promise.all(
-                  its.map(({ _id: itemId, templateId }) => {
-                    return DbTemplateModel.find({
-                      _id: templateId,
-                      userId,
-                      langFrom: 'chinese',
-                      langTo: 'english',
-                      type: { $exists: false },
-                    })
-                  })
-                )
+        const offset = page && perPage ? (page - 1) * perPage : 0
+        const end =
+          (perPage || limit) && limit !== -1
+            ? offset + (perPage || limit || 0)
+            : undefined
+
+        const itemIds = (
+          await DbCategoryModel.find({
+            userId,
+          })
+            .select('_id')
+            .then(async (cats) => {
+              if (cats.length > 0) {
+                return DbItemModel.find({
+                  entry: q ? safeString(q) : undefined,
+                  categoryId: { $in: cats.map((c) => c._id) },
+                })
+                  .sort(sort.join(' '))
+                  .select('_id')
               }
 
-              return {
-                result: [],
-              }
+              return []
             })
-        }
+        ).map((it) => it._id)
 
-        const r = await DbItemModel.aggregate([
-          ...(q ? [{ $match: { entry: safeString(q) } }] : []),
-          {
-            $lookup: {
-              from: 'template',
-              let: {
-                templateId: '$_id',
-              },
-              pipeline: [
-                {
-                  $match: {
-                    $expr: {
-                      $eq: ['$_id', '$$templateId'],
-                    },
-                  },
-                },
-                {
-                  $match: {
-                    userId,
-                    langFrom: 'chinese',
-                    langTo: 'english',
-                    type: { $exists: false },
-                  },
-                },
-              ],
-              as: 't',
+        const resultIds = itemIds.slice(offset, end)
+        const rs = (
+          await DbItemModel.find({
+            _id: {
+              $in: resultIds,
             },
-          },
-          {
-            $match: { t: { $size: { $gt: 0 } } },
-          },
-          {
-            $facet: {
-              result: [
-                {
-                  $sort: sort.reduce((prev, k) => {
-                    if (k.startsWith('-')) {
-                      prev[k.substr(1)] = -1
-                    } else {
-                      prev[k] = 1
-                    }
-
-                    return prev
-                  }, {} as Record<string, -1 | 1>),
-                },
-                ...(page && perPage ? [{ $skip: (page - 1) * perPage }] : []),
-                ...((perPage || limit) && limit !== -1
-                  ? [{ $limit: perPage || limit }]
-                  : []),
-                {
-                  $project: Object.assign(
-                    { _id: 0 },
-                    reduceToObj(select.map((k) => [k, 1]))
-                  ),
-                },
-              ],
-              count: page ? [{ $count: 'count' }] : undefined,
-            },
-          },
-        ])
+          }).select(select.join(' '))
+        ).reduce((prev, c) => {
+          prev.set(
+            c._id,
+            select.reduce((o, k) => ({ ...o, [k]: (c as any)[k] }), {} as any)
+          )
+          return prev
+        }, new Map<string, any>())
 
         return {
-          result: (r[0] || {}).result || [],
-          count: page
-            ? (((r[0] || {}).count || [])[0] || {}).count || 0
-            : undefined,
+          result: resultIds.map((id) => rs.get(id)),
+          count: itemIds.length,
         }
       }
     )
@@ -203,97 +156,88 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const { lang = [] } = req.query
-        const [langFrom = 'chinese', langTo = 'english'] = lang
+        const {
+          lang: [lang = 'chinese', langTranslation = 'english'] = [],
+        } = req.query
 
         const { entry, reading, translation = [] } = req.body
+
+        const authCats = await DbCategoryModel.find({
+          userId: {
+            $in: [userId, 'shared', 'default'],
+          },
+          lang: lang as 'chinese',
+          translation: langTranslation as 'english',
+        }).select('_id type')
+
+        if (!authCats.length) {
+          reply.status(500).send({
+            error: 'No authorized categories found',
+          })
+          return undefined as any
+        }
+
+        if (!authCats.filter((c) => !c.type)) {
+          reply.status(500).send({
+            error: 'No templating categories found',
+          })
+          return undefined as any
+        }
 
         const existing = await DbItemModel.aggregate([
           {
             $match: {
-              $or: [{ entry }, { alt: entry }],
-            },
-          },
-          {
-            $lookup: {
-              from: 'category',
-              let: {
-                categoryId: '$categoryId',
-              },
-              pipeline: [
+              $and: [
+                { $or: [{ entry }, { alt: entry }] },
                 {
-                  $match: {
-                    userId: {
-                      $in: [userId, 'shared', 'default'],
-                    },
-                    langFrom,
-                    langTo,
+                  categoryId: {
+                    $in: authCats.filter((c) => c.type).map((c) => c._id),
                   },
                 },
-                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
               ],
-              as: 'c',
-            },
-          },
-          { $unwind: '$c' },
-          { $unwind: { path: '$c.type', preserveNullAndEmptyArrays: true } },
-          {
-            group: {
-              _id: 'entry',
-              type: { $push: '$c.type' },
-            },
-          },
-          { $limit: 1 },
-        ])
-
-        if (existing[0]) {
-          return {
-            type: (existing[0].type || [])[0],
-          }
-        }
-
-        const template = await DbCategoryModel.aggregate([
-          {
-            $match: {
-              userId: {
-                $in: [userId, 'shared', 'default'],
-              },
-              type: { $exists: false },
-              langFrom,
-              langTo,
             },
           },
           {
-            $sort: {
-              priority: -1,
+            $group: {
+              _id: '$categoryId',
             },
           },
-          { $limit: 1 },
-          {
-            $lookup: {
-              from: 'template',
-              localField: '_id',
-              foreignField: 'categoryId',
-              as: 't',
-            },
-          },
-          { $unwind: '$t' },
           {
             $project: {
               _id: 0,
               categoryId: '$_id',
-              templateId: '$t._id',
             },
           },
         ])
 
-        if (!template.length) {
-          reply.status(500).send({
-            error:
-              'Cannot create item due to lack of templating for quiz. Please contact the admin.',
-          })
-          return undefined as any
+        if (existing[0]) {
+          const existingCatSet = new Set<string>(
+            existing.map((ex) => ex.categoryId)
+          )
+
+          const vocabCats: any[] = authCats.filter(
+            (c) => c.type === 'vocab' && existingCatSet.has(c._id)
+          )
+
+          if (vocabCats.length) {
+            return {
+              type: 'vocab',
+            }
+          }
+
+          return {
+            type:
+              authCats.find((c) => c._id === existing[0].categoryId)?.type ||
+              null,
+          }
         }
+
+        const template = await DbTemplateModel.find({
+          categoryId: { $in: authCats.filter((c) => c.type).map((c) => c._id) },
+        })
+          .sort('-priority')
+          .select('-_id categoryId')
+          .limit(1)
 
         await DbItemModel.create({
           categoryId: template[0].categoryId,
@@ -301,7 +245,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           reading:
             reading && reading[0]
               ? reading
-              : langFrom === 'chinese'
+              : lang === 'chinese'
               ? [makePinyin(entry, { keepRest: true })]
               : undefined,
           translation,
@@ -386,21 +330,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { id } = req.query
 
-        const its = await _getUserItem<{
-          _id: string
-        }>({
-          preConds: [{ $match: { _id: id } }],
-          postConds: [{ $project: { _id: 1 } }],
+        const cats = await DbCategoryModel.find({
           userId,
+          type: { $exists: false },
+        }).select('_id')
+
+        await DbItemModel.deleteOne({
+          _id: id,
+          categoryId: { $in: cats.map((c) => c._id) },
         })
-
-        if (its.length > 0) {
-          await DbItemModel.deleteOne({ _id: { $in: its.map((it) => it._id) } })
-          reply.status(201).send()
-          return
-        }
-
-        reply.status(304).send()
+        reply.status(201).send()
       }
     )
   }
@@ -427,25 +366,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { ids } = req.body
 
-        const its = await _getUserItem<{
-          _id: string
-        }>({
-          preConds: [{ $match: { _id: { $in: ids } } }],
-          postConds: [{ $project: { _id: 1 } }],
+        const cats = await DbCategoryModel.find({
           userId,
+          type: { $exists: false },
+        }).select('_id')
+
+        await DbItemModel.deleteOne({
+          _id: { $in: ids },
+          categoryId: { $in: cats.map((c) => c._id) },
         })
-
-        if (its.length > 0) {
-          await DbItemModel.deleteMany({
-            _id: { $in: its.map((it) => it._id) },
-          })
-          reply.status(201).send({
-            deleted: its.length,
-          })
-          return
-        }
-
-        reply.status(304).send()
+        reply.status(201).send()
       }
     )
   }
@@ -471,47 +401,18 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { entry } = req.query
-        const its = await _getUserItem<{
-          _id: string
-        }>({
-          preConds: [{ $match: { entry: safeString(entry) } }],
-          postConds: [{ $project: { _id: 1 } }],
+        const cats = await DbCategoryModel.find({
           userId,
+          type: { $exists: false },
+        }).select('_id')
+
+        await DbItemModel.deleteOne({
+          entry: safeString(entry),
+          categoryId: { $in: cats.map((c) => c._id) },
         })
 
-        await DbItemModel.deleteMany({ _id: { $in: its.map((it) => it._id) } })
         reply.status(201).send()
       }
     )
-  }
-
-  async function _getUserItem<T>(o: {
-    preConds: any[]
-    postConds: any[]
-    userId: string
-  }) {
-    return (await DbItemModel.aggregate([
-      ...o.preConds,
-      {
-        $lookup: {
-          from: 'category',
-          let: {
-            categoryId: '$categoryId',
-          },
-          pipeline: [
-            {
-              $match: {
-                userId: o.userId,
-                type: { $exists: false },
-              },
-            },
-            { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-          ],
-          as: 'c',
-        },
-      },
-      { $match: { c: { $size: { $gt: 0 } } } },
-      ...o.postConds,
-    ])) as T[]
   }
 }

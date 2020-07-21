@@ -36,13 +36,9 @@ export const sUserSettings = S.shape({
 }).partial()
 
 export class DbUser {
-  @prop({ default: () => nanoid() }) _id!: string
+  @prop({ default: () => nanoid() }) _id?: string
   @prop({ required: true, unique: true }) email!: string
   @prop() name!: string
-  @prop({ default: 1 }) levelMin?: number
-  @prop({ default: 60 }) levelMax?: number
-  @prop({ default: 'chinese' }) lang?: typeof sLang.type
-  @prop({ default: 'english' }) translation?: typeof sTranslation.type
   @prop({
     validate: (s) => typeof s === 'undefined' || !sUserSettings.validate(s)[1],
   })
@@ -115,7 +111,7 @@ type IDbQuizExportPartial = typeof sDbQuizExportPartial.type
 
 @index({ userId: 1, templateId: 1, entry: 1, direction: 1 }, { unique: true })
 export class DbQuiz implements IDbQuizExportPartial {
-  @prop({ default: () => nanoid() }) _id!: string
+  @prop({ default: () => nanoid() }) _id?: string
   @prop({ required: true }) userId!: string
   @prop({ required: true }) templateId!: string
   @prop({ required: true }) entry!: string
@@ -215,7 +211,7 @@ type IDbCategoryExportPartial = typeof sDbCategoryExportPartial.type
 
 @index({ name: 1, lang: 1, translation: 1, type: 1 }, { unique: true })
 export class DbCategory implements IDbCategoryExportPartial {
-  @prop({ default: () => nanoid() }) _id!: string
+  @prop({ default: () => nanoid() }) _id?: string
   @prop({
     required: true,
     type: Schema.Types.Mixed,
@@ -338,7 +334,7 @@ type IDbTemplateExportPartial = typeof sDbTemplateExportPartial.type
 
 @index({ categoryId: 1, direction: 1 }, { unique: true })
 export class DbTemplate implements IDbTemplateExportPartial {
-  @prop({ default: () => nanoid() }) _id!: string
+  @prop({ default: () => nanoid() }) _id?: string
   @prop({ required: true }) categoryId!: string
   @prop({ required: true }) direction!: string
   @prop({
@@ -349,6 +345,7 @@ export class DbTemplate implements IDbTemplateExportPartial {
 
   @prop({ required: true }) front!: string
   @prop() back?: string
+  @prop() priority?: number
 }
 
 export const DbTemplateModel = getModelForClass(DbTemplate, {

@@ -43,7 +43,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { id, select } = req.query
         const [result] = await getAuthorizedCategories({
-          _id: id,
+          categoryId: id,
           userId,
         })
           .select(select.join(' '))

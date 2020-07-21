@@ -30,16 +30,16 @@ export function getAuthorizedCategories({
   type,
   lang,
   translation,
-  _id,
+  categoryId,
 }: {
   userId: string
   type?: typeof sDictionaryType.type | 'user' | typeof sDictionaryType.type[]
   lang?: typeof sLang.type
   translation?: typeof sTranslation.type
-  _id?: string
+  categoryId?: string
 }) {
   return DbCategoryModel.find({
-    _id,
+    _id: categoryId,
     userId: {
       $in: [userId, 'shared', 'default'],
     },

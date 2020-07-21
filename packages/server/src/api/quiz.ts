@@ -9,14 +9,14 @@ import S from 'jsonschema-definer'
 import {
   DbCategoryModel,
   DbQuizModel,
+  DbTemplateModel,
   DbUserModel,
   sDbQuizExportPartial,
   sDbQuizExportSelect,
   sQuizStat,
 } from '@/db/mongo'
-import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
-import { safeString } from '@/util/mongo'
+import { getAuthorizedCategories } from '@/util/mongo'
 import {
   sDateTime,
   sDictionaryType,
@@ -63,21 +63,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        // reply.header('Cache-Control', 'no-cache')
-
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return
         }
 
         const { id, select } = req.query
-        const r =
-          (await DbQuizModel.findOne({
-            _id: id,
-            userId,
-          }).select(
-            Object.assign({ _id: 0 }, reduceToObj(select.map((k) => [k, 1])))
-          )) || ({} as any)
+        const r = await DbQuizModel.findOne({
+          _id: id,
+          userId,
+        }).select(`-_id ${select.join(' ')}`)
 
         return r
       }
@@ -107,28 +102,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        // reply.header('Cache-Control', 'no-cache')
-
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return
         }
 
         const { ids, select } = req.body
-        const result = await DbQuizModel.aggregate([
-          {
-            $match: {
-              _id: { $in: ids },
-              userId,
-            },
-          },
-          {
-            $project: Object.assign(
-              { _id: 0 },
-              reduceToObj(select.map((k) => [k, 1]))
-            ),
-          },
-        ])
+        const result = await DbQuizModel.find({
+          _id: { $in: ids },
+          userId,
+        }).select(`-_id ${select.join(' ')}`)
 
         return { result }
       }
@@ -140,7 +123,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       entry: S.string(),
       select: S.list(sDbQuizExportSelect).minItems(1),
       type: S.anyOf(sDictionaryType, S.string().enum('user')),
-      lang: sLang.optional(),
       limit: S.integer().minimum(-1).optional(),
     })
 
@@ -166,15 +148,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const { entry, select, type, lang = [] } = req.query
+        const { entry, select, type } = req.query
 
         return {
-          result: await _quizGet({
-            userId,
+          result: await _quizGetByEntries({
             entries: [entry],
-            type,
             select,
-            lang,
+            type,
+            userId,
           }),
         }
       }
@@ -186,7 +167,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       entries: S.list(S.string()).minItems(1),
       select: S.list(sDbQuizExportSelect),
       type: S.anyOf(sDictionaryType, S.string().enum('user')),
-      lang: S.list(S.string().enum('chinese')).minItems(1).maxItems(2),
     })
 
     const sResponse = S.shape({
@@ -211,74 +191,18 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const { entries, select, type, lang } = req.body
+        const { entries, select, type } = req.body
 
         return {
-          result: await _quizGet({
+          result: await _quizGetByEntries({
             userId,
             entries,
             select,
             type,
-            lang,
           }),
         }
       }
     )
-  }
-
-  async function _quizGet(o: {
-    userId: string
-    entries: string[]
-    lang: string[]
-    type: string
-    select: string[]
-  }) {
-    return await DbQuizModel.aggregate([
-      {
-        $match: {
-          userId: o.userId,
-          entry: { $in: o.entries.map(safeString) },
-        },
-      },
-      {
-        $lookup: {
-          from: 'template',
-          localField: 'templateId',
-          foreignField: '_id',
-          as: 't',
-        },
-      },
-      { $unwind: '$t' },
-      {
-        $lookup: {
-          from: 'category',
-          let: {
-            categoryId: '$t.categoryId',
-          },
-          pipeline: [
-            { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-            {
-              $match: {
-                langFrom: safeString(o.lang[0] || 'chinese'),
-                langTo: safeString(o.lang[1] || 'english'),
-                type:
-                  o.type === 'user' ? { $exists: false } : safeString(o.type),
-              },
-            },
-          ],
-          as: 'c',
-        },
-      },
-      { $match: { c: { $size: { $gt: 0 } } } },
-      {
-        $group: {
-          _id: 0,
-          ...reduceToObj(
-            o.select.map((k) => [k, k === '_id' ? 1 : { $first: `$${k}` }])
-          ),
-        },
-      },
-    ])
   }
 
   function doMark() {
@@ -453,67 +377,15 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           })
         }
 
-        const rs = (await DbQuizModel.aggregate([
-          {
-            $match: {
-              $and: [
-                {
-                  userId,
-                  tag: tag ? { $in: tag.map(safeString) } : undefined,
-                },
-                ...($or.length ? [{ $or }] : []),
-              ],
+        const rs = await DbQuizModel.find({
+          $and: [
+            {
+              userId,
+              tag: tag ? { $in: tag } : undefined,
             },
-          },
-          {
-            $lookup: {
-              from: 'template',
-              let: {
-                templateId: '$templateId',
-              },
-              pipeline: [
-                { $match: { $expr: { $eq: ['templateId', '$$templateId'] } } },
-                {
-                  $match: {
-                    direction: { $in: direction.map(safeString) },
-                  },
-                },
-              ],
-              as: 't',
-            },
-          },
-          { $unwind: '$t' },
-          {
-            $lookup: {
-              from: 'category',
-              let: {
-                categoryId: '$t.categoryId',
-              },
-              pipeline: [
-                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-                {
-                  $match: {
-                    type: {
-                      $in: type.map((t) =>
-                        t === 'extra' ? { $exists: false } : safeString(t)
-                      ),
-                    },
-                  },
-                },
-              ],
-              as: 'c',
-            },
-          },
-          { $match: { c: { $size: { $gt: 0 } } } },
-          {
-            $group: {
-              _id: '$_id',
-              nextReview: { $toString: { $first: '$nextReview' } },
-              srsLevel: { $first: '$srsLevel' },
-              stat: { $first: '$stat' },
-            },
-          },
-        ])) as typeof sQuizItem.type[]
+            ...($or.length ? [{ $or }] : []),
+          ],
+        }).select('_id nextReview srsLevel stat')
 
         if (isDue) {
           const now = new Date()
@@ -524,7 +396,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             if (!q.nextReview || q.nextReview < now) {
               quiz.push(q)
             } else {
-              upcoming.push(q.nextReview as string)
+              upcoming.push(q.nextReview.toISOString())
             }
           })
 
@@ -565,44 +437,35 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const {
           entries,
-          type,
-          lang: [langFrom = 'chinese', langTo = 'english'] = [],
+          type = 'user',
+          lang: [lang = 'chinese', translation = 'english'] = [],
         } = req.body
 
-        const templateIds = (
-          await DbCategoryModel.aggregate([
-            {
-              $match: {
-                userId: { $in: [userId, 'shared', 'default'] },
-                type: safeString(type),
-                langFrom,
-                langTo,
-              },
-            },
-            { $sort: { priority: -1 } },
-            {
-              $lookup: {
-                from: 'template',
-                localField: '_id',
-                foreignField: 'categoryId',
-                as: 't',
-              },
-            },
-            { $unwind: '$t' },
-            {
-              $project: {
-                _id: '$t._id',
-              },
-            },
-          ])
-        ).map((t) => t._id)
+        const ts = (
+          await getAuthorizedCategories({
+            userId,
+            type,
+            lang: lang as 'chinese',
+            translation: translation as 'english',
+          })
+            .select('_id')
+            .then((cats) => {
+              if (cats.length) {
+                return DbTemplateModel.find({
+                  categoryId: { $in: cats.map((c) => c._id) },
+                }).select('_id')
+              }
+
+              return []
+            })
+        ).flatMap((ts) => ts)
 
         await DbQuizModel.insertMany(
           entries.flatMap((ent) =>
-            templateIds.map((templateId) => ({
+            ts.map((t) => ({
               userId,
               entry: ent,
-              templateId,
+              templateId: t._id,
             }))
           )
         )
@@ -728,5 +591,78 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         reply.status(201).send()
       }
     )
+  }
+
+  async function _quizGetByEntries({
+    entries,
+    userId,
+    type,
+    select,
+  }: {
+    entries: string[]
+    userId: string
+    type: 'hanzi' | 'vocab' | 'sentence' | 'user'
+    select: string[]
+  }) {
+    const qs = await DbQuizModel.find({
+      entry: { $in: entries },
+      userId,
+    }).select('_id templateId')
+
+    if (qs.length) {
+      const result = await DbTemplateModel.find({
+        _id: { $in: qs.map((q) => q.templateId) },
+      })
+        .select('categoryId')
+        .then(async (ts) => {
+          if (ts.length) {
+            const [cat] = await DbCategoryModel.find({
+              _id: { $in: ts.map((t) => t.categoryId) },
+              type: type === 'user' ? { $exists: false } : type,
+            })
+              .limit(1)
+              .select('_id')
+
+            return await Promise.all(
+              ts
+                .filter((t) => t.categoryId === cat._id)
+                .map(async (t) => {
+                  return DbQuizModel.find({
+                    _id: {
+                      $in: qs
+                        .filter((q) => q.templateId === t._id)
+                        .map((q) => q._id),
+                    },
+                  })
+                    .select(select.join(' '))
+                    .then((qs) => {
+                      return qs.map((q) => ({
+                        _id: select.includes('_id') ? q._id : undefined,
+                        direction: select.includes('direction')
+                          ? t.direction
+                          : undefined,
+                        front: q.front,
+                        back: q.back,
+                        mnemonic: q.mnemonic,
+                        srsLevel: q.srsLevel,
+                        stat: q.stat,
+                      }))
+                    })
+                })
+            ).then((qss) =>
+              qss
+                .flatMap((qs) => qs)
+                .filter((el) => el)
+                .map((el) => el!)
+            )
+          }
+
+          return []
+        })
+
+      return result
+    }
+
+    return []
   }
 }

@@ -27,3 +27,5 @@ yarn-error.log*
 *.loki
 
 /mongodata
+*.db
+*.loki

@@ -12,8 +12,8 @@ import {
   sDbTemplateExportPartial,
   sDbTemplateExportSelect,
 } from '@/db/mongo'
-import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
+import { getAuthorizedCategories } from '@/util/mongo'
 import { sId } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
@@ -27,7 +27,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function getById() {
     const sQuery = S.shape({
       id: sId,
-      select: S.list(sDbTemplateExportSelect).minItems(1),
     })
 
     const sResponse = S.shape({
@@ -52,39 +51,31 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const { id, select } = req.query
+        const { id } = req.query
 
-        const [r] = await DbTemplateModel.aggregate([
-          { $match: { _id: id } },
-          {
-            $lookup: {
-              from: 'category',
-              let: {
-                categoryId: '$categoryId',
+        const cats = await getAuthorizedCategories({
+          userId,
+        }).select('_id type')
+
+        if (cats.length) {
+          const ts = await DbTemplateModel.find({
+            _id: id,
+            categoryId: { $in: cats.map((c) => c._id) },
+          })
+            .limit(1)
+            .select('-_id categoryId')
+
+          if (ts[0]) {
+            const c = cats.find((c) => c._id === ts[0].categoryId)
+            return {
+              result: {
+                type: c?.type,
               },
-              pipeline: [
-                {
-                  $match: {
-                    userId: {
-                      $in: [userId, 'shared', 'default'],
-                    },
-                  },
-                },
-                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-              ],
-              as: 'c',
-            },
-          },
-          { $match: { c: { $size: { $gt: 0 } } } },
-          {
-            $project: Object.assign(
-              { _id: 0 },
-              reduceToObj(select.map((k) => [k, 1]))
-            ),
-          },
-        ])
+            }
+          }
+        }
 
-        return r || null
+        return {}
       }
     )
   }
@@ -119,38 +110,23 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { ids, select } = req.body
 
-        const rs = await DbTemplateModel.aggregate([
-          { $match: { _id: { $in: ids } } },
-          {
-            $lookup: {
-              from: 'category',
-              let: {
-                categoryId: '$categoryId',
-              },
-              pipeline: [
-                {
-                  $match: {
-                    userId: {
-                      $in: [userId, 'shared', 'default'],
-                    },
-                  },
-                },
-                { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-              ],
-              as: 'c',
-            },
-          },
-          { $match: { c: { $size: { $gt: 0 } } } },
-          {
-            $project: Object.assign(
-              { _id: 0 },
-              reduceToObj(select.map((k) => [k, 1]))
-            ),
-          },
-        ])
+        const cats = await getAuthorizedCategories({
+          userId,
+        }).select('_id type')
+
+        if (cats.length) {
+          const result = await DbTemplateModel.find({
+            _id: { $in: ids },
+            categoryId: { $in: cats.map((c) => c._id) },
+          }).select(select.join(' '))
+
+          return {
+            result,
+          }
+        }
 
         return {
-          result: rs,
+          result: [],
         }
       }
     )
