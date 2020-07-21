@@ -781,7 +781,7 @@ export default class QuizPage extends Vue {
           } = {},
         } = await this.$axios.$get('/api/user', {
           params: {
-            select: 'settings.quiz',
+            select: ['settings.quiz'],
           },
         })
 

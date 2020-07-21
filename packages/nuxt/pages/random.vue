@@ -227,7 +227,7 @@ export default class RandomPage extends Vue {
 
     const r = await this.$axios.$get('/api/dictionary/random', {
       params: {
-        type,
+        type: [type],
         select: ['entry', 'translation'],
         level: [this.levelMin, this.level],
       },

@@ -181,10 +181,9 @@ export default class ExtraPage extends Vue {
       '/api/item/search',
       {
         params: {
-          type: 'user',
           select: ['entry', 'reading', 'translation'],
           page: [p, this.perPage],
-          sort: `${this.sort.type === 'desc' ? '-' : ''}${this.sort.key}`,
+          sort: [`${this.sort.type === 'desc' ? '-' : ''}${this.sort.key}`],
         },
       }
     )

@@ -81,7 +81,7 @@ export async function loadChineseDictionaries() {
     type: 'sentence',
     langFrom: 'chinese',
     langTo: 'english',
-    tag: ['tatoeba', 'zhquiz', 'zhlevel'],
+    tag: ['tatoeba', 'zhquiz', 'zhlevel', 'dictionary'],
   })
 
   const tatoebaEntries: typeof sDbItem.type[] = []
@@ -121,7 +121,7 @@ export async function loadChineseDictionaries() {
     type: 'hanzi',
     langFrom: 'chinese',
     langTo: 'english',
-    tag: ['junda', 'Jun Da', 'zhquiz', 'zhlevel'],
+    tag: ['junda', 'Jun Da', 'zhquiz', 'zhlevel', 'dictionary'],
   })
 
   const jundaDictEntries: typeof sDbItem.type[] = []
@@ -187,10 +187,10 @@ export async function loadChineseDictionaries() {
     type: 'vocab',
     langFrom: 'chinese',
     langTo: 'english',
-    tag: ['cedict', 'mdbg', 'zhquiz', 'zhlevel'],
+    tag: ['cedict', 'mdbg', 'zhquiz', 'zhlevel', 'dictionary'],
   })
 
-  const cedictEntries: typeof sDbItem.type[] = []
+  const cedictEntries = new Map<string, typeof sDbItem.type>()
 
   db.prepare(
     /* sql */ `
@@ -202,19 +202,38 @@ export async function loadChineseDictionaries() {
     .all()
     .map(({ simplified, traditional, pinyin, english, frequency }) => {
       const entry = simplified
+      const oldEt = cedictEntries.get(entry)
 
-      cedictEntries.push(
-        ensureSchema(sDbItem, {
-          categoryId: cedict._id,
+      if (oldEt) {
+        const { alt = [], reading = [], translation = [] } = oldEt
+        if (translation) {
+          alt.push(traditional)
+        }
+        reading.push(pinyin || makePinyin(entry, { keepRest: true }))
+        translation.push(addSpaceToSlash(english))
+
+        oldEt.alt = alt.length ? [...new Set(alt)].sort() : undefined
+        oldEt.reading = [...new Set(reading)].sort()
+        oldEt.translation = [...new Set(translation)].sort()
+
+        cedictEntries.set(entry, oldEt)
+      } else {
+        cedictEntries.set(
           entry,
-          alt: traditional ? [traditional] : undefined,
-          frequency: frequency || undefined,
-          level: vMap.get(entry),
-          reading: [pinyin || makePinyin(entry, { keepRest: true })],
-          translation: [addSpaceToSlash(english)],
-        })
-      )
+          ensureSchema(sDbItem, {
+            categoryId: cedict._id,
+            entry,
+            alt: traditional ? [traditional] : undefined,
+            frequency: frequency || undefined,
+            level: vMap.get(entry),
+            reading: [pinyin || makePinyin(entry, { keepRest: true })],
+            translation: [addSpaceToSlash(english)],
+          })
+        )
+      }
     })
+
+  await DbItemModel.insertMany(cedictEntries.values(), { ordered: false })
 
   db.close()
 
@@ -239,7 +258,7 @@ function indicesOf(str: string, c: string) {
 async function cleanup() {
   await DbTokenModel.deleteMany({})
   await DbCategoryModel.purgeMany('default', {
-    tag: 'zhquiz',
+    $and: [{ tag: 'zhquiz' }, { tag: 'dictionary' }],
   })
 }
 

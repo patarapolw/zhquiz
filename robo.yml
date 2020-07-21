@@ -26,6 +26,10 @@ heroku-docker-login:
 heroku-release:
   command: |
     heroku container:release web
+mongo-local:
+  command: |
+    mkdir -p ./mongodata
+    mongod --dbpath ./mongodata
 
 ##########
 # Settings

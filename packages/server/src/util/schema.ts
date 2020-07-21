@@ -17,16 +17,10 @@ export const sSort = (ks: string[]) =>
 export const sSrsLevel = S.integer()
   .minimum(0)
   .maximum(srsMap.length - 1)
-export const sPagination = S.anyOf(
-  S.array().items([S.integer().minimum(1)]),
-  S.array().items([S.integer().minimum(1), S.integer().minimum(5)])
-)
-export const sLevel = S.list(S.integer().minimum(1).maximum(60))
-  .minItems(1)
-  .maxItems(2)
-export const sLang = S.array()
-  .items([S.string().enum('chinese')])
-  .optional()
+export const sPerPage = S.integer().minimum(5)
+export const sLevel = S.integer().minimum(1).maximum(60)
+export const sLang = S.string().enum('chinese')
+export const sTranslation = S.string().enum('english')
 
 export function ensureSchema<T extends BaseSchema>(
   schema: T,

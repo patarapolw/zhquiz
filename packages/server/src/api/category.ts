@@ -1,13 +1,9 @@
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
-import {
-  DbCategoryModel,
-  sDbCategoryExportPartial,
-  sDbCategoryExportSelect,
-} from '@/db/mongo'
-import { reduceToObj } from '@/util'
+import { sDbCategoryExportPartial, sDbCategoryExportSelect } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
+import { getAuthorizedCategories } from '@/util/mongo'
 import { sId } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
@@ -46,22 +42,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { id, select } = req.query
-        const [result] = await DbCategoryModel.aggregate([
-          {
-            $match: {
-              userId: {
-                $in: [userId, 'shared', 'default'],
-              },
-              _id: id,
-            },
-          },
-          {
-            $project: Object.assign(
-              { _id: 0 },
-              reduceToObj(select.map((k) => [k, 1]))
-            ),
-          },
-        ])
+        const [result] = await getAuthorizedCategories({
+          _id: id,
+          userId,
+        })
+          .select(select.join(' '))
+          .limit(1)
 
         return {
           result,

@@ -11,7 +11,13 @@ import { nanoid } from 'nanoid'
 import XRegExp from 'xregexp'
 
 import { safeString } from '@/util/mongo'
-import { sDateTime, sDictionaryType, sId } from '@/util/schema'
+import {
+  sDateTime,
+  sDictionaryType,
+  sId,
+  sLang,
+  sTranslation,
+} from '@/util/schema'
 
 import { getNextReview, repeatReview, srsMap } from './quiz'
 
@@ -30,12 +36,13 @@ export const sUserSettings = S.shape({
 }).partial()
 
 export class DbUser {
+  @prop({ default: () => nanoid() }) _id!: string
   @prop({ required: true, unique: true }) email!: string
   @prop() name!: string
   @prop({ default: 1 }) levelMin?: number
   @prop({ default: 60 }) levelMax?: number
-  @prop({ default: 'chinese' }) langFrom?: string
-  @prop({ default: 'english' }) langTo?: string
+  @prop({ default: 'chinese' }) lang?: typeof sLang.type
+  @prop({ default: 'english' }) translation?: typeof sTranslation.type
   @prop({
     validate: (s) => typeof s === 'undefined' || !sUserSettings.validate(s)[1],
   })
@@ -206,7 +213,7 @@ export const sDbCategoryExportPartial = S.shape({
 
 type IDbCategoryExportPartial = typeof sDbCategoryExportPartial.type
 
-@index({ name: 1, langFrom: 1, langTo: 1, type: 1 }, { unique: true })
+@index({ name: 1, lang: 1, translation: 1, type: 1 }, { unique: true })
 export class DbCategory implements IDbCategoryExportPartial {
   @prop({ default: () => nanoid() }) _id!: string
   @prop({
@@ -217,8 +224,8 @@ export class DbCategory implements IDbCategoryExportPartial {
   userId!: string[]
 
   @prop({ required: true }) name!: string
-  @prop({ required: true }) langFrom!: string
-  @prop({ required: true }) langTo!: string
+  @prop({ required: true }) lang!: typeof sLang.type
+  @prop({ required: true }) translation!: typeof sTranslation.type
   @prop({
     validate: (s) =>
       typeof s !== 'undefined' && !sDictionaryType.validate(s)[1],
@@ -250,7 +257,7 @@ export class DbCategory implements IDbCategoryExportPartial {
           as: 't',
         },
       },
-      { $unwind: { path: '$t', preserveNullAndEmptyArrays: true } },
+      { $unwind: '$t' },
       {
         $project: {
           _id: 1,
@@ -258,6 +265,7 @@ export class DbCategory implements IDbCategoryExportPartial {
         },
       },
     ])
+    console.log(rs)
 
     const tids = [
       ...new Set<string>(rs.map((r) => r.templateId).filter((id) => id)),
@@ -295,7 +303,7 @@ export class DbCategory implements IDbCategoryExportPartial {
             }
           )
 
-          await DbItemModel.deleteMany({ userId: { $size: 0 } })
+          await DbCategoryModel.deleteMany({ userId: { $size: 0 } })
         })()
       )
     }

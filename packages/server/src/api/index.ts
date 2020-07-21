@@ -3,11 +3,13 @@ import fCoookie from 'fastify-cookie'
 import swagger from 'fastify-oas'
 import fSession from 'fastify-session'
 import admin from 'firebase-admin'
+import rison from 'rison'
 
 import { DbUserModel } from '@/db/mongo'
 
 import categoryRouter from './category'
 import chineseRouter from './chinese'
+import dictionaryRouter from './dictionary'
 import itemRouter from './item'
 import quizRouter from './quiz'
 import templateRouter from './template'
@@ -44,43 +46,23 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   f.addHook('preValidation', async (req) => {
     if (req.query) {
-      Object.entries<string | string[] | undefined>(req.query).map(([k, v]) => {
-        const v0 = (Array.isArray(v) ? v[0] : v) || ''
-        if (v0) {
-          if (
-            [
-              'type',
-              'page',
-              'sort',
-              'stage',
-              'direction',
-              'tag',
-              'level',
-              'lang',
-            ].includes(k)
-          ) {
-            req.query[k] = v0.split(',').map((el) => {
-              if (['page', 'level'].includes(k)) {
-                return parseInt(el)
+      Object.entries<string | string[] | undefined>(req.query).map(
+        ([k, v = '']) => {
+          const v0 = (Array.isArray(v) ? v[0] : v) || ''
+          if (v0) {
+            if (
+              ['_', 'select', 'type', 'page', 'perPage'].includes(k) ||
+              /^is[A-Z]/.test(k)
+            ) {
+              try {
+                req.query[k] = rison.decode(v0)
+              } catch (e) {
+                console.error(e)
               }
-
-              return el
-            })
-          } else if (k === 'limit') {
-            req.query[k] = parseInt(v0)
+            }
           }
-        } else if (!v0.trim()) {
-          delete req.query[k]
         }
-      })
-    }
-
-    if (req.body) {
-      Object.entries(req.body).map(([k, v]) => {
-        if (typeof v === 'string' && !v.trim()) {
-          delete req.body[k]
-        }
-      })
+      )
     }
   })
 
@@ -96,20 +78,20 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     }
 
     const ticket = await admin.auth().verifyIdToken(m[1], true)
-    // console.log(ticket)
 
     if (!req.session.user && ticket.email) {
       req.session.user = await DbUserModel.signIn(ticket.email, ticket.name)
     }
   })
 
-  f.register(chineseRouter, { prefix: '/chinese' })
-  f.register(tokenRouter, { prefix: '/token' })
-  f.register(itemRouter, { prefix: '/item' })
-  f.register(userRouter, { prefix: '/user' })
-  f.register(quizRouter, { prefix: '/quiz' })
   f.register(categoryRouter, { prefix: '/category' })
+  f.register(chineseRouter, { prefix: '/chinese' })
+  f.register(dictionaryRouter, { prefix: '/dictionary' })
+  f.register(itemRouter, { prefix: '/item' })
+  f.register(quizRouter, { prefix: '/quiz' })
   f.register(templateRouter, { prefix: '/template' })
+  f.register(tokenRouter, { prefix: '/token' })
+  f.register(userRouter, { prefix: '/user' })
 
   next()
 }

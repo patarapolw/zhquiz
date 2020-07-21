@@ -217,7 +217,7 @@ export default class LevelPage extends Vue {
       settings: { level: { whatToShow } = {} as any } = {},
     } = await this.$axios.$get('/api/user', {
       params: {
-        select: 'settings.level.whatToShow',
+        select: ['settings.level.whatToShow'],
       },
     })
 

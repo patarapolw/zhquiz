@@ -7,20 +7,19 @@ import {
 import S from 'jsonschema-definer'
 
 import {
-  DbCategoryModel,
   DbItemModel,
+  DbQuizModel,
   sDbItemExportPartial,
   sDbItemExportSelect,
 } from '@/db/mongo'
-import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
-import { safeString } from '@/util/mongo'
+import { getAuthorizedCategories } from '@/util/mongo'
 import {
   sDictionaryType,
   sLang,
   sLevel,
-  sPagination,
   sSrsLevel,
+  sTranslation,
 } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
@@ -28,23 +27,23 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   const myShapeDictionaryQuery = {
     type: S.list(sDictionaryType).minItems(1),
     select: S.list(sDbItemExportSelect).minItems(1),
-    lang: S.array()
-      .items([S.string().enum('chinese')])
-      .optional(),
+    lang: sLang.optional(),
+    translation: sTranslation.optional(),
   }
 
   getLevel()
   getMatchAlt()
   getMatchExact()
   getSearch()
-  postSearchExcluded()
+  postSearch()
   getRandom()
 
   next()
 
   function getLevel() {
     const sQuery = S.shape({
-      lang: S.string().enum('chinese').optional(),
+      lang: sLang.optional(),
+      translation: sTranslation.optional(),
     })
 
     const sResponse = S.shape({
@@ -70,84 +69,52 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<typeof sResponse.type> => {
-        reply.header('Cache-Control', 'no-cache')
-
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return undefined as any
         }
 
-        const { lang } = req.query
-        let [langFrom, langTo] = lang || []
-        langFrom = langFrom || 'chinese'
-        langTo = langTo || 'english'
+        const { lang = 'chinese', translation = 'english' } = req.query
 
-        const result = await DbCategoryModel.aggregate([
-          {
-            $match: {
-              userId: { $in: [userId, 'shared', 'default'] },
-              type: 'vocab',
-              langFrom: safeString(langFrom),
-              langTo: safeString(langTo),
-            },
-          },
-          {
-            $lookup: {
-              from: 'item',
-              localField: 'categoryId',
-              foreignField: '_id',
-              as: 'it',
-            },
-          },
-          { $unwind: '$it' },
-          {
-            $lookup: {
-              from: 'template',
-              localField: 'categoryId',
-              foreignField: '_id',
-              as: 't',
-            },
-          },
-          { $unwind: '$t' },
-          { $match: { 'it.level': { $exists: true } } },
-          {
-            $lookup: {
-              from: 'quiz',
-              let: {
-                entry: '$it.entry',
-                templateId: '$t._id',
-              },
-              pipeline: [
-                {
-                  $match: {
-                    $and: [
-                      { userId },
-                      {
-                        $expr: {
-                          $and: [
-                            { $eq: ['entry', '$$entry'] },
-                            { $eq: ['templateId', '$$templateId'] },
-                          ],
-                        },
-                      },
-                    ],
-                  },
-                },
-              ],
-              as: 'q',
-            },
-          },
-          { $unwind: '$q' },
-          {
-            $group: {
-              _id: '$it.entry',
-              srsLevel: { $max: '$q.srsLevel' },
-              level: { $max: '$it.level' },
-            },
-          },
-          { $addFields: { entry: '$_id' } },
-          { $project: { _id: 0 } },
-        ])
+        const result = await getAuthorizedCategories({
+          userId,
+          lang,
+          translation,
+        })
+          .select('_id')
+          .then(async (cs) => {
+            if (cs.length) {
+              return DbItemModel.find({
+                categoryId: { $in: cs.map((r) => r._id) },
+                level: { $exists: true },
+              })
+                .select('entry level')
+                .then(async (rs) => {
+                  if (rs.length) {
+                    const levelMap = rs.reduce((prev, { entry, level = 1 }) => {
+                      prev.set(entry, level)
+                      return prev
+                    }, new Map<string, number>())
+
+                    return DbQuizModel.find({
+                      userId,
+                      entry: { $in: rs.map((r) => r.entry) },
+                    })
+                      .select('entry srsLevel')
+                      .then((qs) =>
+                        qs.map(({ entry, srsLevel }) => ({
+                          entry,
+                          srsLevel,
+                          level: levelMap.get(entry),
+                        }))
+                      )
+                  }
+
+                  return []
+                })
+            }
+            return []
+          })
 
         return {
           result,
@@ -164,7 +131,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
     const sResponse = S.shape({
       result: S.list(sDbItemExportPartial),
-      count: S.integer().minimum(0).optional(),
     })
 
     f.get<typeof sQuery.type>(
@@ -172,7 +138,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       {
         schema: {
           tags,
-          summary: 'Look up Chinese dictionary for a matched item',
+          summary: 'Look up Chinese dictionary for alternate items',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -180,27 +146,38 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<typeof sResponse.type> => {
-        reply.header('Cache-Control', 'no-cache')
-
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return undefined as any
         }
 
-        const { q, type, select, lang } = req.query
-        const [langFrom = 'chinese', langTo = 'english'] = lang || []
-
-        return await _doquery({
-          firstCond: {
-            $match: { $or: [{ entry: q }, { alt: q }] },
-          },
-          userId,
+        const {
+          q,
           type,
           select,
-          // limit: -1,
-          langFrom,
-          langTo,
+          lang = 'chinese',
+          translation = 'english',
+        } = req.query
+
+        const result = await getAuthorizedCategories({
+          userId,
+          type,
+          lang,
+          translation,
         })
+          .select('_id')
+          .then((cs) =>
+            DbItemModel.find({
+              $and: [
+                { $or: [{ entry: q }, { alt: q }] },
+                { categoryId: { $in: cs.map((c) => c._id) } },
+              ],
+            }).select(select.join(' '))
+          )
+
+        return {
+          result,
+        }
       }
     )
   }
@@ -228,30 +205,26 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<typeof sResponse.type> => {
-        reply.header('Cache-Control', 'no-cache')
-
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return undefined as any
         }
 
-        const { q, type, select, lang = [] } = req.query
+        const { q, type, select, lang, translation } = req.query
 
-        const [langFrom = 'chinese', langTo = 'english'] = lang
-
-        const {
-          result: [result],
-        } = await _doquery({
-          firstCond: {
-            $match: { entry: q },
-          },
+        const [result] = await getAuthorizedCategories({
           userId,
           type,
-          select,
-          limit: 1,
-          langFrom,
-          langTo,
-        })
+          lang,
+          translation,
+        }).map((cs) =>
+          DbItemModel.find({
+            entry: q,
+            categoryId: { $in: cs.map((c) => c._id) },
+          })
+            .select(select.join(' '))
+            .limit(1)
+        )
 
         return { result }
       }
@@ -262,7 +235,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sQuery = S.shape({
       q: S.string(),
       ...myShapeDictionaryQuery,
-      page: sPagination.optional(),
+      page: S.integer().minimum(1).optional(),
+      perPage: S.integer().minimum(5).optional(),
       limit: S.integer().minimum(-1),
     })
 
@@ -284,8 +258,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<typeof sResponse.type> => {
-        reply.header('Cache-Control', 'no-cache')
-
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return undefined as any
@@ -295,43 +267,36 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           q,
           type,
           select,
-          page: [page, perPage] = [],
-          limit = 10,
-          lang = [],
+          page,
+          perPage,
+          limit,
+          lang,
+          translation,
         } = req.query
 
-        const [langFrom = 'chinese', langTo = 'english'] = lang
-
-        return await _doquery({
-          firstCond: {
-            $match: {
-              $text: {
-                $search: safeString(q),
-                $language: langFrom,
-              },
-            },
-          },
+        return _doSearch({
           userId,
+          q,
           type,
           select,
           page,
           perPage,
           limit,
-          langFrom,
-          langTo,
+          lang,
+          translation,
         })
       }
     )
   }
 
-  function postSearchExcluded() {
+  function postSearch() {
     const sBody = S.shape({
       q: S.string(),
-      type: S.list(sDictionaryType).minItems(1),
-      select: S.list(sDbItemExportSelect).minItems(1),
+      ...myShapeDictionaryQuery,
+      page: S.integer().minimum(1).optional(),
+      perPage: S.integer().minimum(5).optional(),
       limit: S.integer().minimum(-1).optional(),
       exclude: S.list(S.string()),
-      lang: sLang.optional(),
     })
 
     const sResponse = S.shape({
@@ -352,32 +317,34 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<typeof sResponse.type> => {
-        reply.header('Cache-Control', 'no-cache')
-
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return undefined as any
         }
 
-        const { q, type, select, limit = 10, lang = [] } = req.body
-
-        const [langFrom = 'chinese', langTo = 'english'] = lang
-
-        return await _doquery({
-          firstCond: {
-            $match: {
-              $text: {
-                $search: safeString(q),
-                $language: 'chinese',
-              },
-            },
-          },
-          userId,
+        const {
+          q,
           type,
           select,
+          page,
+          perPage,
           limit,
-          langFrom,
-          langTo,
+          lang,
+          translation,
+          exclude,
+        } = req.body
+
+        return _doSearch({
+          userId,
+          q,
+          type,
+          select,
+          page,
+          perPage,
+          limit,
+          lang,
+          translation,
+          exclude,
         })
       }
     )
@@ -385,6 +352,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getRandom() {
     const sQuery = S.shape({
+      levelMin: sLevel.optional(),
       level: sLevel.optional(),
       ...myShapeDictionaryQuery,
     })
@@ -407,177 +375,132 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<typeof sResponse.type> => {
-        reply.header('Cache-Control', 'no-cache')
-
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return undefined as any
         }
 
-        const { type, level = [60], lang = [], select } = req.query
+        const {
+          type,
+          levelMin = 1,
+          level: levelMax = 60,
+          lang,
+          translation,
+          select,
+        } = req.query
 
-        if (level.length === 1) {
-          level.unshift(1)
-        }
-
-        const [langFrom = 'chinese', langTo = 'english'] = lang
-
-        return await _doquery({
-          random: {
-            levelMin: level[0],
-            levelMax: level[1],
-          },
+        return _doSearch({
           userId,
+          lang,
+          translation,
           type,
           select,
-          limit: 1,
-          langFrom,
-          langTo,
+          randomize: {
+            levelMin,
+            levelMax,
+          },
+          limit: -1,
         })
       }
     )
   }
 
-  async function _doquery(o: {
-    userId: string
-    firstCond?: any
-    random?: {
-      levelMin: number
-      levelMax: number
-    }
-    langFrom?: string
-    langTo?: string
-    type: string[]
+  async function _doSearch({
+    userId,
+    type,
+    lang,
+    translation,
+    q,
+    page,
+    perPage,
+    limit,
+    select,
+    exclude,
+    randomize,
+  }: Parameters<typeof getAuthorizedCategories>[0] & {
+    q?: string
     page?: number
     perPage?: number
     limit?: number
     select: string[]
+    exclude?: string[]
+    randomize?: {
+      levelMin: number
+      levelMax: number
+    }
   }) {
-    o.langFrom = o.langFrom || 'chinese'
-    o.langTo = o.langTo || 'english'
+    const cs = await (async () => {
+      let cursor = getAuthorizedCategories({
+        userId,
+        type,
+        lang,
+        translation,
+      })
+      if (!randomize) {
+        cursor = cursor.sort('-priority')
+      }
 
-    const r = await DbItemModel.aggregate([
-      ...(o.firstCond ? [o.firstCond] : []),
-      ...(o.random
-        ? [
-            {
-              $match: {
-                $and: [
-                  { level: { $gte: o.random!.levelMin || 1 } },
-                  { level: { $lte: o.random!.levelMax || 60 } },
-                ],
-              },
-            },
-            {
-              $lookup: {
-                from: 'quiz',
-                let: {
-                  entry: '$entry',
-                },
-                pipeline: [
-                  { $match: { $expr: { $eq: ['$entry', '$$entry'] } } },
-                  {
-                    $match: {
-                      $and: [
-                        {
-                          userId: o.userId,
-                          nextReview: { $exists: true },
-                        },
-                      ],
-                    },
-                  },
-                ],
-                as: 'q',
-              },
-            },
-            { $match: { q: { $size: { $gt: 0 } } } },
-          ]
-        : []),
-      {
-        $lookup: {
-          from: 'category',
-          let: {
-            categoryId: '$categoryId',
-          },
-          pipeline: [
-            {
-              $match: {
-                userId: {
-                  $in: [o.userId, 'shared', 'default'],
-                },
-                type: { $in: o.type.map(safeString) },
-                langFrom: o.langFrom,
-                langTo: o.langTo,
-              },
-            },
-            { $match: { $expr: { $eq: ['$_id', '$$categoryId'] } } },
-          ],
-          as: 'c',
-        },
-      },
-      ...(o.random
-        ? [
-            {
-              $match: {
-                c: { $size: { $gt: 0 } },
-              },
-            },
-            { $sample: { size: 1 } },
-          ]
-        : []),
-      { $unwind: '$c' },
-      { $unwind: { $path: '$alt', preserveNullAndEmptyArrays: true } },
-      { $unwind: { $path: '$reading', preserveNullAndEmptyArrays: true } },
-      {
-        $unwind: {
-          $path: '$translation',
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      {
-        group: {
-          _id: 'entry',
-          cPriority: { $max: '$c.priority' },
-          priority: { $max: '$priority' },
-          frequency: { $max: '$frequency' },
-          alt: { $push: '$alt' },
-          reading: { $push: '$reading' },
-          translation: { $push: '$translation' },
-        },
-      },
-      {
-        $facet: {
-          result: [
-            {
-              $sort: {
-                cPriority: -1,
-                priority: -1,
-                frequency: -1,
-              },
-            },
-            ...(o.page && o.perPage
-              ? [{ $skip: (o.page - 1) * o.perPage }]
-              : []),
-            ...((o.perPage || o.limit) && o.limit !== -1
-              ? [{ $limit: o.perPage || o.limit }]
-              : []),
-            {
-              $project: Object.assign(
-                { _id: 0 },
-                reduceToObj(o.select.map((k) => [k, 1]))
-              ),
-            },
-          ],
-          count: o.page ? [{ $count: 'count' }] : undefined,
-        },
-      },
-    ])
+      return cursor.select('_id')
+    })()
+    if (cs.length) {
+      return Promise.all(
+        cs.map(async (c) => {
+          let itemCusor = DbItemModel.find({
+            $and: [
+              q ? { $text: { $search: q, $language: lang } } : null,
+              { categoryId: c._id },
+              { entry: exclude ? { $nin: exclude } : undefined },
+            ]
+              .filter((el) => el)
+              .map((el) => el!),
+          })
 
+          if (!randomize) {
+            itemCusor = itemCusor.sort('-priority -level')
+          }
+
+          return itemCusor.select('_id').then((its) => ({
+            itemIds: its.map((it) => it._id),
+          }))
+        })
+      ).then(async (cs1) => {
+        const ids = cs1.reduce(
+          (prev, { itemIds }) => [...prev, ...itemIds],
+          [] as string[]
+        )
+
+        let idsInScope: string[] = []
+
+        if (randomize) {
+          idsInScope = [ids[Math.floor(Math.random() * ids.length)]]
+        } else {
+          const idsPerPage = limit === -1 ? null : perPage || limit
+          const idsStart = idsPerPage && page ? (page - 1) * idsPerPage : 0
+          const idsEnd = idsPerPage && page ? page * idsPerPage : undefined
+
+          idsInScope = ids.slice(idsStart, idsEnd)
+        }
+
+        return {
+          result: await DbItemModel.find({
+            _id: { $in: idsInScope },
+          })
+            .select(select.join(' '))
+            .then((its) => {
+              const rMap = its.reduce(
+                (prev, it) => ({ ...prev, [it._id]: it }),
+                {} as Record<string, any>
+              )
+
+              return idsInScope.map((id) => rMap[id])
+            }),
+          count: page ? ids.length : undefined,
+        }
+      })
+    }
     return {
-      result: (r[0]?.result || []) as typeof sDbItemExportPartial.type[],
-      count: o.page
-        ? (((r[0] || {}).count || [])[0] || {}).count || 0
-        : undefined,
+      result: [],
+      count: page ? 0 : undefined,
     }
   }
 }

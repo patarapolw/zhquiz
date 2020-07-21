@@ -63,7 +63,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        reply.header('Cache-Control', 'no-cache')
+        // reply.header('Cache-Control', 'no-cache')
 
         const userId = checkAuthorize(req, reply)
         if (!userId) {
@@ -107,7 +107,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply) => {
-        reply.header('Cache-Control', 'no-cache')
+        // reply.header('Cache-Control', 'no-cache')
 
         const userId = checkAuthorize(req, reply)
         if (!userId) {
@@ -139,9 +139,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sQuery = S.shape({
       entry: S.string(),
       select: S.list(sDbQuizExportSelect).minItems(1),
-      type: S.array().items([
-        S.anyOf(sDictionaryType, S.string().enum('user')),
-      ]),
+      type: S.anyOf(sDictionaryType, S.string().enum('user')),
       lang: sLang.optional(),
       limit: S.integer().minimum(-1).optional(),
     })
@@ -168,12 +166,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const {
-          entry,
-          select,
-          type: [type],
-          lang = [],
-        } = req.query
+        const { entry, select, type, lang = [] } = req.query
 
         return {
           result: await _quizGet({
@@ -381,7 +374,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       type: S.list(myType),
       stage: S.list(myStage),
       direction: S.list(S.string()),
-      isDue: S.string().enum('1').optional(),
+      isDue: S.boolean().optional(),
       tag: S.list(S.string()).optional(),
     })
 
@@ -420,7 +413,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { type, stage, direction, isDue: _isDue, tag } = req.query
-
         const isDue = !!_isDue
 
         /**

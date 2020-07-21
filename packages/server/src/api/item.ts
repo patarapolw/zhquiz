@@ -1,17 +1,22 @@
 import makePinyin from 'chinese-to-pinyin'
-import { DefaultHeaders, DefaultParams, FastifyInstance } from 'fastify'
+import {
+  DefaultHeaders,
+  DefaultParams,
+  DefaultQuery,
+  FastifyInstance,
+} from 'fastify'
 import S from 'jsonschema-definer'
 
 import {
   DbCategoryModel,
   DbItemModel,
+  DbTemplateModel,
   sDbItemExportPartial,
   sDbItemExportSelect,
 } from '@/db/mongo'
-import { reduceToObj } from '@/util'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
-import { sDictionaryType, sId, sLang, sPagination, sSort } from '@/util/schema'
+import { sDictionaryType, sId, sLang, sSort } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['item']
@@ -36,7 +41,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sQuery = S.shape({
       q: S.string().optional(),
       select: S.list(sDbItemExportSelect).minItems(1),
-      page: sPagination.optional(),
+      page: S.integer().minimum(1).optional(),
+      perPage: S.integer().minimum(5).optional(),
       limit: S.integer().minimum(-1).optional(),
       sort: S.list(mySort).optional(),
     })
@@ -59,8 +65,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         },
       },
       async (req, reply): Promise<typeof sResponse.type> => {
-        reply.header('Cache-Control', 'no-cache')
-
         const userId = checkAuthorize(req, reply)
         if (!userId) {
           return undefined as any
@@ -68,11 +72,36 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const {
           q,
-          page: [page, perPage] = [],
-          limit = 10,
+          page,
+          perPage,
+          limit,
           select,
           sort = ['-updatedAt'],
         } = req.query
+
+        if (q) {
+          await DbItemModel.find({ entry: safeString(q) })
+            .select('_id templateId')
+            .then(async (its) => {
+              if (its.length) {
+                return Promise.all(
+                  its.map(({ _id: itemId, templateId }) => {
+                    return DbTemplateModel.find({
+                      _id: templateId,
+                      userId,
+                      langFrom: 'chinese',
+                      langTo: 'english',
+                      type: { $exists: false },
+                    })
+                  })
+                )
+              }
+
+              return {
+                result: [],
+              }
+            })
+        }
 
         const r = await DbItemModel.aggregate([
           ...(q ? [{ $match: { entry: safeString(q) } }] : []),
@@ -153,7 +182,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sBody = sDbItemExportPartial.required('entry')
 
     const sResponse = S.shape({
-      type: sDictionaryType.optional(),
+      type: S.anyOf(sDictionaryType, S.null()),
     })
 
     f.put<typeof sQuery.type, DefaultParams, DefaultHeaders, typeof sBody.type>(
@@ -278,7 +307,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           translation,
         })
 
-        return {}
+        return {
+          type: null,
+        }
       }
     )
   }
@@ -375,17 +406,17 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   }
 
   function postDeleteByIds() {
-    const sQuery = S.shape({
-      ids: S.list(sId),
+    const sBody = S.shape({
+      ids: S.list(sId).minItems(1),
     })
 
-    f.post<typeof sQuery.type>(
+    f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
       '/delete/ids',
       {
         schema: {
           tags,
           summary: 'Delete user-created items',
-          querystring: sQuery.valueOf(),
+          body: sBody.valueOf(),
         },
       },
       async (req, reply) => {
@@ -394,7 +425,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { ids } = req.query
+        const { ids } = req.body
 
         const its = await _getUserItem<{
           _id: string
