@@ -126,7 +126,9 @@ import { speak } from '~/assets/speak'
 @Component<LevelPage>({
   layout: 'app',
   created() {
-    this.init()
+    this.init().then(() => {
+      this.isLoading = false
+    })
   },
   watch: {
     whatToShow() {
@@ -169,17 +171,18 @@ export default class LevelPage extends Vue {
           level,
           entries: Array.from(entries)
             .filter((v) => {
-              if (
-                this.whatToShow === 'all-quiz' ||
-                this.whatToShow === 'learning'
-              ) {
-                if (typeof this.srsLevel.get(v) !== 'undefined') {
-                  return true
-                }
+              if (this.whatToShow === 'all') {
+                return true
               }
 
               if (this.whatToShow === 'learning') {
                 if (this.srsLevel.get(v)! <= 2) {
+                  return true
+                }
+              }
+
+              if (this.whatToShow === 'all-quiz') {
+                if (typeof this.srsLevel.get(v) !== 'undefined') {
                   return true
                 }
               }
@@ -245,14 +248,18 @@ export default class LevelPage extends Vue {
         })
       : this.$axios.$get('/api/dictionary/level'))
 
-    result.map(({ entry, level, srsLevel }) => {
+    entries.map((entry) => {
+      this.srsLevel.delete(entry)
+    })
+
+    result.map(({ entry, level, srsLevel = -1 }) => {
       if (level) {
         const levelData = this.allData.get(level) || new Set()
         levelData.add(entry)
         this.allData.set(level, levelData)
       }
 
-      this.srsLevel.set(entry, typeof srsLevel === 'undefined' ? -1 : srsLevel)
+      this.srsLevel.set(entry, srsLevel)
     })
 
     if (!entries.length) {

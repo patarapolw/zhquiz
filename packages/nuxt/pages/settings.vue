@@ -1,25 +1,7 @@
 <template>
   <section>
     <div v-show="isInit" class="SettingsPage">
-      <form class="container" @submit.prevent="doSave">
-        <div class="flex flex-row items-center">
-          <b-field label="Level Range" class="flex-grow">
-            <b-slider v-model="lv" :min="lvRange[0]" :max="lvRange[1]" lazy>
-              <b-slider-tick :value="lvRange[0]">{{
-                lvRange[0]
-              }}</b-slider-tick>
-              <template
-                v-for="val in Array(lvRange[1] / 10)
-                  .fill(10)
-                  .map((el, i) => el * (i + 1))"
-              >
-                <b-slider-tick :key="val" :value="val">{{ val }}</b-slider-tick>
-              </template>
-            </b-slider>
-          </b-field>
-          <div class="label-level">{{ lv[0] }} - {{ lv[1] }}</div>
-        </div>
-
+      <!-- <form class="container" @submit.prevent="doSave">
         <div class="flex flex-row">
           <button
             class="button is-success"
@@ -30,7 +12,7 @@
             Save
           </button>
         </div>
-      </form>
+      </form> -->
 
       <div class="container w-full danger-zone">
         <h3 class="title is-4 is-danger">Danger Zone</h3>
@@ -93,45 +75,16 @@ import { Component, Vue } from 'nuxt-property-decorator'
 
 @Component<SettingsPage>({
   layout: 'app',
-  created() {
-    this.onUserChanged()
-  },
 })
 export default class SettingsPage extends Vue {
-  lv = [1, 60]
-  isInit = false
+  isInit = true
 
   isDeleteAccountModal = false
   deleteAccountEmail = ''
 
-  readonly lvRange = [1, 60]
-
   get email() {
     const u = this.$store.state.user as User | null
     return u ? u.email : undefined
-  }
-
-  async onUserChanged() {
-    if (this.email) {
-      this.isInit = false
-      const { levelMin, level } = await this.$axios.$get('/api/user', {
-        params: {
-          select: ['levelMin', 'level'],
-        },
-      })
-      this.lv = [levelMin || 1, level || 60]
-      this.isInit = true
-    }
-  }
-
-  async doSave() {
-    await this.$axios.$patch('/api/user', {
-      set: {
-        levelMin: this.lv[0],
-        level: this.lv[1],
-      },
-    })
-    this.$buefy.snackbar.open('Saved')
   }
 
   async doDeleteAccount() {

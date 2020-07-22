@@ -17,7 +17,7 @@
       <div class="columns">
         <div class="column is-6 entry-display">
           <div
-            class="hanzi-display clickable"
+            class="hanzi-display clickable font-han"
             @contextmenu.prevent="
               openSelectedContextmenu(evt, 'hanzi', current)
             "
@@ -77,7 +77,7 @@
               <span
                 v-for="h in (token || {}).sub || []"
                 :key="h"
-                class="font-hanamin clickable"
+                class="font-han clickable"
                 @contextmenu.prevent="openSelectedContextmenu(evt, 'hanzi', h)"
               >
                 {{ h }}
@@ -106,7 +106,7 @@
               <span
                 v-for="h in (token || {}).sup || []"
                 :key="h"
-                class="font-hanamin clickable"
+                class="font-han clickable"
                 @contextmenu.prevent="openSelectedContextmenu(evt, 'hanzi', h)"
               >
                 {{ h }}
@@ -135,7 +135,7 @@
               <span
                 v-for="h in (token || {}).variants || []"
                 :key="h"
-                class="font-hanamin clickable"
+                class="font-han clickable"
                 @contextmenu.prevent="openSelectedContextmenu(evt, 'hanzi', h)"
               >
                 {{ h }}
@@ -163,7 +163,7 @@
             <div class="card-content">
               <div v-for="(v, i) in matchedVocab" :key="i" class="long-item">
                 <span
-                  class="clickable"
+                  class="clickable font-zh-simp"
                   @contextmenu.prevent="
                     openSelectedContextmenu(evt, 'vocab', v.entry)
                   "
@@ -176,7 +176,7 @@
                   <span
                     v-for="a in v.alt"
                     :key="a"
-                    class="clickable vocab-alt"
+                    class="clickable vocab-alt font-zh-trad"
                     @contextmenu.prevent="
                       (evt) => {
                         openSelectedContextmenu(evt, 'vocab', a)
@@ -229,7 +229,7 @@
             <div class="card-content">
               <div v-for="(s, i) in matchedSentence" :key="i" class="long-item">
                 <span
-                  class="clickable"
+                  class="clickable font-zh-simp"
                   @contextmenu.prevent="
                     openSelectedContextmenu(evt, 'sentence', v.entry)
                   "
@@ -555,7 +555,7 @@ export default class HanziPage extends Vue {
   overflow: scroll;
 }
 
-.card-content .font-hanamin {
+.card-content .font-han {
   font-size: 50px;
   display: inline-block;
 }

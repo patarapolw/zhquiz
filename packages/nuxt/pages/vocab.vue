@@ -16,7 +16,7 @@
 
       <div class="columns">
         <div class="column is-6 entry-display">
-          <div class="vocab-display">
+          <div class="vocab-display font-zh-simp">
             <div
               class="clickable text-center"
               @contextmenu.prevent="
@@ -114,7 +114,7 @@
               <span
                 v-for="(a, i) in entry.alt"
                 :key="i"
-                class="font-chinese clickable pipe-divided"
+                class="font-zh-trad clickable pipe-divided"
                 @contextmenu.prevent="
                   (evt) => {
                     openSelectedContextmenu(evt, 'vocab', a)
@@ -177,7 +177,7 @@
                 class="sentence-item"
               >
                 <span
-                  class="clickable"
+                  class="clickable font-zh-simp"
                   @contextmenu.prevent="
                     (evt) => {
                       openSelectedContextmenu(evt, 'sentence', s.entry)
@@ -508,7 +508,7 @@ export default class VocabPage extends Vue {
   margin-bottom: 1rem;
 }
 
-.card .font-chinese {
+.card [class^='font-'] {
   font-size: 60px;
   height: 80px;
 }

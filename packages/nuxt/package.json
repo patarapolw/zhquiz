@@ -26,6 +26,7 @@
     "codemirror": "^5.55.0",
     "dayjs": "^1.8.29",
     "dompurify": "^2.0.12",
+    "encodeuri-plus": "^0.3.8",
     "firebase": "^7.15.5",
     "handlebars": "^4.7.6",
     "he": "^1.2.0",

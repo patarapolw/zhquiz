@@ -1,15 +1,10 @@
 import { Plugin } from '@nuxt/types'
+import { URLEncoder } from 'encodeuri-plus'
 import rison from 'rison'
 
+const enc = new URLEncoder()
+
 const onInit: Plugin = ({ $axios }) => {
-  // $axios.defaults.validateStatus = (status: number) => {
-  //   if (status === 401) {
-  //     return true
-  //   }
-
-  //   return status >= 200 && status < 300 // default
-  // }
-
   $axios.defaults.paramsSerializer = (params) => {
     return Object.entries<any>(params)
       .filter(([, v]) => v)
@@ -32,20 +27,12 @@ const onInit: Plugin = ({ $axios }) => {
           v = rison.encode(v)
         }
 
-        return `${encodeURIComponent(k)}=${qsValueEncode(v)}`
+        return `${enc.encode(k, { type: 'queryKey' })}=${enc.encode(v, {
+          type: 'queryValue',
+        })}`
       })
       .join('&')
   }
 }
 
 export default onInit
-
-function qsValueEncode(s: string) {
-  return s
-    .split('')
-    .map((c) => {
-      if (';,/?:+$'.includes(c)) return c
-      return encodeURIComponent(c)
-    })
-    .join('')
-}

@@ -6,7 +6,7 @@
           <div class="item-display item-display-top">
             <b-tooltip :label="current.hanzi.translation">
               <div
-                class="font-hanamin hanzi clickable"
+                class="font-han hanzi clickable"
                 @contextmenu.prevent="
                   (evt) => openSelectedContextmenu(evt, 'hanzi')
                 "
@@ -26,7 +26,7 @@
           <div class="item-display item-display-top">
             <b-tooltip :label="current.vocab.translation">
               <div
-                class="font-chinese hanzi clickable"
+                class="font-zh-simp hanzi clickable"
                 @contextmenu.prevent="
                   (evt) => openSelectedContextmenu(evt, 'vocab')
                 "
@@ -46,7 +46,7 @@
       <div class="item-display item-display-bottom">
         <b-tooltip :label="current.sentence.translation">
           <div
-            class="font-chinese hanzi clickable text-center"
+            class="font-zh-simp hanzi clickable text-center"
             @contextmenu.prevent="
               (evt) => openSelectedContextmenu(evt, 'sentence')
             "

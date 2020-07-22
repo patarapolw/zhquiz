@@ -11,13 +11,7 @@ import { nanoid } from 'nanoid'
 import XRegExp from 'xregexp'
 
 import { safeString } from '@/util/mongo'
-import {
-  sDateTime,
-  sDictionaryType,
-  sId,
-  sLang,
-  sTranslation,
-} from '@/util/schema'
+import { sDateTime, sDictionaryType, sId } from '@/util/schema'
 
 import { getNextReview, repeatReview, srsMap } from './quiz'
 
@@ -220,8 +214,9 @@ export class DbCategory implements IDbCategoryExportPartial {
   userId!: string[]
 
   @prop({ required: true }) name!: string
-  @prop({ required: true }) lang!: typeof sLang.type
-  @prop({ required: true }) translation!: typeof sTranslation.type
+  @prop({ default: 'chinese' }) lang?: string
+  @prop({ default: 'english' }) translation?: string
+
   @prop({
     validate: (s) =>
       typeof s !== 'undefined' && !sDictionaryType.validate(s)[1],
@@ -243,31 +238,19 @@ export class DbCategory implements IDbCategoryExportPartial {
         }
       : { userId }
 
-    const rs = await DbCategoryModel.aggregate([
-      { $match: cond },
-      {
-        $lookup: {
-          from: 'template',
-          localField: '_id',
-          foreignField: 'categoryId',
-          as: 't',
-        },
-      },
-      { $unwind: '$t' },
-      {
-        $project: {
-          _id: 1,
-          templateId: '$t._id',
-        },
-      },
-    ])
-    console.log(rs)
+    const cids = await DbCategoryModel.find(cond)
+      .select('_id')
+      .then((cs) => cs.map((c) => c._id))
 
     const tids = [
-      ...new Set<string>(rs.map((r) => r.templateId).filter((id) => id)),
+      ...new Set<string>(
+        await DbTemplateModel.find({
+          categoryId: { $in: cids },
+        })
+          .select('_id')
+          .then((ts) => ts.map((t) => t._id))
+      ),
     ]
-
-    const cids = [...new Set<string>(rs.map((r) => r._id).filter((id) => id))]
 
     const promises: Promise<any>[] = []
 

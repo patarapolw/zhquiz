@@ -469,7 +469,6 @@ interface ITemplate {
   categoryId: string
   front: string
   back?: string
-  requiredFields?: string[]
   _meta?: {
     direction?: string
   }

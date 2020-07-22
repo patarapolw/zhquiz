@@ -19,8 +19,6 @@ export const sSrsLevel = S.integer()
   .maximum(srsMap.length - 1)
 export const sPerPage = S.integer().minimum(5)
 export const sLevel = S.integer().minimum(1).maximum(60)
-export const sLang = S.string().enum('chinese')
-export const sTranslation = S.string().enum('english')
 
 export function ensureSchema<T extends BaseSchema>(
   schema: T,

@@ -1,9 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { sDbCategoryExportPartial, sDbCategoryExportSelect } from '@/db/mongo'
+import {
+  DbCategoryModel,
+  sDbCategoryExportPartial,
+  sDbCategoryExportSelect,
+} from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
-import { getAuthorizedCategories } from '@/util/mongo'
+import { sharedUserIds } from '@/util/mongo'
 import { sId } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
@@ -42,9 +46,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         }
 
         const { id, select } = req.query
-        const [result] = await getAuthorizedCategories({
-          categoryId: id,
-          userId,
+
+        const [result] = await DbCategoryModel.find({
+          _id: id,
+          userId: { $in: [userId, ...sharedUserIds] },
         })
           .select(select.join(' '))
           .limit(1)

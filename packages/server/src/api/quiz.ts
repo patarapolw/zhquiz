@@ -1,13 +1,9 @@
-import {
-  DefaultHeaders,
-  DefaultParams,
-  DefaultQuery,
-  FastifyInstance,
-} from 'fastify'
+import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
 import {
   DbCategoryModel,
+  DbItemModel,
   DbQuizModel,
   DbTemplateModel,
   DbUserModel,
@@ -16,14 +12,7 @@ import {
   sQuizStat,
 } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
-import { getAuthorizedCategories } from '@/util/mongo'
-import {
-  sDateTime,
-  sDictionaryType,
-  sId,
-  sLang,
-  sSrsLevel,
-} from '@/util/schema'
+import { sDateTime, sDictionaryType, sId, sSrsLevel } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['quiz']
@@ -89,7 +78,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       result: S.list(sDbQuizExportPartial),
     })
 
-    f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
+    f.post<any, any, any, typeof sBody.type>(
       '/ids',
       {
         schema: {
@@ -173,7 +162,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       result: S.list(sDbQuizExportPartial),
     })
 
-    f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
+    f.post<any, any, any, typeof sBody.type>(
       '/entries',
       {
         schema: {
@@ -417,10 +406,9 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sBody = S.shape({
       entries: S.list(S.string()),
       type: sDictionaryType.optional(),
-      lang: sLang.optional(),
     })
 
-    f.put<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
+    f.put<any, any, any, typeof sBody.type>(
       '/entries',
       {
         schema: {
@@ -435,25 +423,66 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const {
-          entries,
-          type = 'user',
-          lang: [lang = 'chinese', translation = 'english'] = [],
-        } = req.body
+        const { entries, type = 'user' } = req.body
 
-        const ts = (
-          await getAuthorizedCategories({
+        const cats = await DbCategoryModel.find({
+          userId,
+          type: type === 'user' ? { $exists: false } : type,
+        }).select('_id')
+
+        if (!cats.length) {
+          reply.status(500).send({
+            error: 'Cannot create quiz',
+          })
+        }
+
+        const ets = (
+          await DbCategoryModel.find({
             userId,
-            type,
-            lang: lang as 'chinese',
-            translation: translation as 'english',
+            type: type === 'user' ? { $exists: false } : type,
           })
             .select('_id')
             .then((cats) => {
               if (cats.length) {
                 return DbTemplateModel.find({
                   categoryId: { $in: cats.map((c) => c._id) },
-                }).select('_id')
+                })
+                  .select('_id categoryId requiredFields')
+                  .then((ts) => {
+                    return Promise.all(
+                      ts.map(async (t) => {
+                        if (t.requiredFields && t.requiredFields.length) {
+                          return DbItemModel.find({
+                            categoryId: t.categoryId,
+                            entry: { $in: entries },
+                            alt: t.requiredFields.includes('alt')
+                              ? { $exists: true }
+                              : undefined,
+                            reading: t.requiredFields.includes('reading')
+                              ? { $exists: true }
+                              : undefined,
+                            translation: t.requiredFields.includes(
+                              'translation'
+                            )
+                              ? { $exists: true }
+                              : undefined,
+                          })
+                            .select('-_id entry')
+                            .then((its) =>
+                              its.map(({ entry }) => ({
+                                entry,
+                                template: t,
+                              }))
+                            )
+                        }
+
+                        return entries.map((entry) => ({
+                          entry,
+                          template: t,
+                        }))
+                      })
+                    )
+                  })
               }
 
               return []
@@ -461,13 +490,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         ).flatMap((ts) => ts)
 
         await DbQuizModel.insertMany(
-          entries.flatMap((ent) =>
-            ts.map((t) => ({
-              userId,
-              entry: ent,
-              templateId: t._id,
-            }))
-          )
+          ets.map(({ entry, template }) => ({
+            userId,
+            entry,
+            templateId: template._id,
+          }))
         )
 
         reply.status(201).send()
@@ -489,12 +516,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       }),
     })
 
-    f.patch<
-      typeof sQuery.type,
-      DefaultParams,
-      DefaultHeaders,
-      typeof sBody.type
-    >(
+    f.patch<typeof sQuery.type, any, any, typeof sBody.type>(
       '/',
       {
         schema: {
@@ -567,7 +589,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       ids: S.list(sId).minItems(1),
     })
 
-    f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
+    f.post<any, any, any, typeof sBody.type>(
       '/delete/ids',
       {
         schema: {

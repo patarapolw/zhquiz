@@ -1,19 +1,15 @@
-import {
-  DefaultHeaders,
-  DefaultParams,
-  DefaultQuery,
-  FastifyInstance,
-} from 'fastify'
+import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
 import {
+  DbCategoryModel,
   DbTemplateModel,
   sDbCategoryExportPartial,
   sDbTemplateExportPartial,
   sDbTemplateExportSelect,
 } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
-import { getAuthorizedCategories } from '@/util/mongo'
+import { sharedUserIds } from '@/util/mongo'
 import { sId } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
@@ -53,8 +49,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { id } = req.query
 
-        const cats = await getAuthorizedCategories({
-          userId,
+        const cats = await DbCategoryModel.find({
+          userId: { $in: [userId, ...sharedUserIds] },
         }).select('_id type')
 
         if (cats.length) {
@@ -90,7 +86,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       result: S.list(sDbTemplateExportPartial),
     })
 
-    f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
+    f.post<any, any, any, typeof sBody.type>(
       '/ids',
       {
         schema: {
@@ -110,8 +106,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { ids, select } = req.body
 
-        const cats = await getAuthorizedCategories({
-          userId,
+        const cats = await DbCategoryModel.find({
+          userId: { $in: [userId, ...sharedUserIds] },
         }).select('_id type')
 
         if (cats.length) {

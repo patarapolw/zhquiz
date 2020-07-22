@@ -1,9 +1,4 @@
-import {
-  DefaultHeaders,
-  DefaultParams,
-  DefaultQuery,
-  FastifyInstance,
-} from 'fastify'
+import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
 import { DbUserModel } from '@/db/mongo'
@@ -74,7 +69,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             }),
     })
 
-    f.patch<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
+    f.patch<any, any, any, typeof sBody.type>(
       '/',
       {
         schema: {

@@ -115,8 +115,6 @@ import { getGravatarUrl } from '~/assets/gravatar'
   },
 })
 export default class AppLayout extends Vue {
-  level = ' '
-
   readonly getGravatarUrl = getGravatarUrl
 
   get navItems() {
@@ -169,6 +167,11 @@ export default class AppLayout extends Vue {
     ]
   }
 
+  get level() {
+    const { level } = this.$store.state
+    return level ? level.toString() : ' '
+  }
+
   get isReady() {
     return this.isAuthReady && this.user
   }
@@ -196,15 +199,6 @@ export default class AppLayout extends Vue {
   async onAuthChanged() {
     if (this.isAuthReady && !this.user) {
       this.$router.push('/')
-    }
-
-    if (this.user) {
-      const { level = 60 } = await this.$axios.$get('/api/user', {
-        params: {
-          select: ['level'],
-        },
-      })
-      this.level = level.toString()
     }
   }
 }

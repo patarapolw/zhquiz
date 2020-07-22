@@ -7,21 +7,23 @@
     url('~@/assets/fonts/HanaMinB.ttf') format('truetype');
 }
 
-.font-hanamin {
+.font-han {
   font-family: 'Noto Serif TC', 'Noto Serif SC', 'HanaMin', sans-serif;
 }
 
-.font-chinese {
+.font-zh-simp {
+  font-family: 'Noto Serif SC', 'Noto Serif TC', serif;
+}
+
+.font-zh-trad {
   font-family: 'Noto Serif TC', 'Noto Serif SC', serif;
 }
 
 .hanzi-display {
-  font-family: 'Noto Serif TC', 'Noto Serif SC', 'HanaMin', sans-serif;
   font-size: 150px;
 }
 
 .vocab-display {
-  font-family: 'Noto Serif TC', 'Noto Serif SC', serif;
   font-size: 120px;
 }
 

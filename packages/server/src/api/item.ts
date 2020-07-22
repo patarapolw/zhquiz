@@ -1,10 +1,5 @@
 import makePinyin from 'chinese-to-pinyin'
-import {
-  DefaultHeaders,
-  DefaultParams,
-  DefaultQuery,
-  FastifyInstance,
-} from 'fastify'
+import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
 import {
@@ -16,7 +11,7 @@ import {
 } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
 import { safeString } from '@/util/mongo'
-import { sDictionaryType, sId, sLang, sSort } from '@/util/schema'
+import { sDictionaryType, sId, sSort } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['item']
@@ -128,17 +123,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   }
 
   function doCreate() {
-    const sQuery = S.shape({
-      lang: sLang.optional(),
-    })
-
     const sBody = sDbItemExportPartial.required('entry')
 
     const sResponse = S.shape({
       type: S.anyOf(sDictionaryType, S.null()),
     })
 
-    f.put<typeof sQuery.type, DefaultParams, DefaultHeaders, typeof sBody.type>(
+    f.put<any, any, any, typeof sBody.type>(
       '/',
       {
         schema: {
@@ -156,18 +147,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return undefined as any
         }
 
-        const {
-          lang: [lang = 'chinese', langTranslation = 'english'] = [],
-        } = req.query
-
         const { entry, reading, translation = [] } = req.body
 
         const authCats = await DbCategoryModel.find({
           userId: {
             $in: [userId, 'shared', 'default'],
           },
-          lang: lang as 'chinese',
-          translation: langTranslation as 'english',
         }).select('_id type')
 
         if (!authCats.length) {
@@ -245,9 +230,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           reading:
             reading && reading[0]
               ? reading
-              : lang === 'chinese'
-              ? [makePinyin(entry, { keepRest: true })]
-              : undefined,
+              : [makePinyin(entry, { keepRest: true })],
           translation,
         })
 
@@ -268,12 +251,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       set: sDbItemExportPartial,
     })
 
-    f.patch<
-      typeof sQuery.type,
-      DefaultParams,
-      DefaultHeaders,
-      typeof sBody.type
-    >(
+    f.patch<typeof sQuery.type, any, any, typeof sBody.type>(
       '/',
       {
         schema: {
@@ -349,7 +327,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       ids: S.list(sId).minItems(1),
     })
 
-    f.post<DefaultQuery, DefaultParams, DefaultHeaders, typeof sBody.type>(
+    f.post<any, any, any, typeof sBody.type>(
       '/delete/ids',
       {
         schema: {
