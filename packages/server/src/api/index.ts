@@ -4,16 +4,14 @@ import swagger from 'fastify-oas'
 import fSession from 'fastify-session'
 import admin from 'firebase-admin'
 
-import { DbUserModel } from '../db/mongo'
+import { DbUserModel } from '@/db/mongo'
 
-import cardRouter from './card'
+import chineseRouter from './chinese'
+import dictionaryRouter from './dictionary'
 import extraRouter from './extra'
-import hanziRouter from './hanzi'
-import libRouter from './lib'
 import quizRouter from './quiz'
-import sentenceRouter from './sentence'
+import tokenRouter from './token'
 import userRouter from './user'
-import vocabRouter from './vocab'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   admin.initializeApp({
@@ -48,6 +46,18 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       return
     }
 
+    if (
+      process.env.NODE_ENV === 'development' &&
+      process.env.DEFAULT_EMAIL &&
+      process.env.DEFAULT_NAME
+    ) {
+      req.session.user = await DbUserModel.signIn(
+        process.env.DEFAULT_EMAIL,
+        process.env.DEFAULT_NAME
+      )
+      return
+    }
+
     const m = /^Bearer (.+)$/.exec(req.headers.authorization || '')
 
     if (!m) {
@@ -56,21 +66,18 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     }
 
     const ticket = await admin.auth().verifyIdToken(m[1], true)
-    // console.log(ticket)
 
     if (!req.session.user && ticket.email) {
       req.session.user = await DbUserModel.signIn(ticket.email, ticket.name)
     }
   })
 
-  f.register(libRouter, { prefix: '/lib' })
-  f.register(sentenceRouter, { prefix: '/sentence' })
-  f.register(vocabRouter, { prefix: '/vocab' })
-  f.register(hanziRouter, { prefix: '/hanzi' })
-  f.register(cardRouter, { prefix: '/card' })
-  f.register(userRouter, { prefix: '/user' })
+  f.register(chineseRouter, { prefix: '/chinese' })
+  f.register(dictionaryRouter, { prefix: '/dictionary' })
   f.register(quizRouter, { prefix: '/quiz' })
   f.register(extraRouter, { prefix: '/extra' })
+  f.register(tokenRouter, { prefix: '/token' })
+  f.register(userRouter, { prefix: '/user' })
 
   next()
 }

@@ -4,8 +4,10 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
-    "dev": "ts-node-dev src/index.ts",
-    "build": "tsc -P src/tsconfig.json"
+    "dev": "yarn run-ts-dev src/index.ts",
+    "build": "rimraf dist && tsc -P src/tsconfig.json && babel dist --out-dir dist",
+    "run-ts": "ts-node -r tsconfig-paths/register -O '{\"module\":\"commonjs\",\"noImplicitAny\":false}'",
+    "run-ts-dev": "ts-node-dev -r tsconfig-paths/register"
   },
   "keywords": [],
   "author": {
@@ -18,7 +20,6 @@
     "@typegoose/typegoose": "^7.0.0",
     "chinese-to-pinyin": "^1.3.1",
     "dayjs": "^1.8.25",
-    "dot-prop": "^5.2.0",
     "fastify": "^2.13.1",
     "fastify-cookie": "^3.6.0",
     "fastify-helmet": "^3.0.2",
@@ -26,7 +27,6 @@
     "fastify-session": "^3.3.0",
     "fastify-static": "^2.7.0",
     "firebase-admin": "^8.11.0",
-    "js-yaml": "^3.13.1",
     "jsonschema-definer": "^1.2.2",
     "lokijs": "^1.5.9",
     "mongoose": "^5.9.10",
@@ -36,6 +36,8 @@
     "xregexp": "^4.3.0"
   },
   "devDependencies": {
+    "@babel/cli": "^7.10.5",
+    "@babel/core": "^7.10.5",
     "@types/better-sqlite3": "^5.4.0",
     "@types/js-yaml": "^3.12.3",
     "@types/lokijs": "^1.5.3",
@@ -45,6 +47,7 @@
     "@types/xregexp": "^4.3.0",
     "@typescript-eslint/eslint-plugin": "^3.4.0",
     "@typescript-eslint/parser": "^3.4.0",
+    "babel-plugin-module-resolver": "^4.0.0",
     "better-sqlite3": "^6.0.1",
     "eslint": ">=6.2.2",
     "eslint-config-prettier": "^6.11.0",
@@ -56,9 +59,11 @@
     "eslint-plugin-simple-import-sort": "^5.0.3",
     "eslint-plugin-standard": ">=4.0.0",
     "fastify-cors": "^3.0.3",
+    "js-yaml": "^3.14.0",
     "log-buffer": "^0.0.3",
     "pino-pretty": "^4.1.0",
     "prettier": "^2.0.5",
+    "rimraf": "^3.0.2",
     "ts-node-dev": "^1.0.0-pre.44",
     "typescript": "^3.8.3"
   },

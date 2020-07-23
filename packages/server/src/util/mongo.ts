@@ -21,28 +21,4 @@ export function safeString(s?: string) {
   return s
 }
 
-export const sharedUserIds = ['shared', 'default']
-
-// export function getAuthorizedCategories({
-//   userId,
-//   type,
-//   categoryId,
-// }: {
-//   userId: string
-//   type?: typeof sDictionaryType.type | 'user' | typeof sDictionaryType.type[]
-//   categoryId?: string
-// }) {
-//   return DbCategoryModel.find({
-//     _id: categoryId,
-//     userId: {
-//       $in: [userId, 'shared', 'default'],
-//     },
-//     type: type
-//       ? type === 'user'
-//         ? { $exists: false }
-//         : Array.isArray(type)
-//         ? { $in: type }
-//         : type
-//       : undefined,
-//   })
-// }
+// export const sharedUserIds = ['shared', 'default']

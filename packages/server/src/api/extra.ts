@@ -1,257 +1,251 @@
+import makePinyin from 'chinese-to-pinyin'
 import { FastifyInstance } from 'fastify'
+import S from 'jsonschema-definer'
 
-import { zhSentence, zhToken, zhVocab } from '../db/local'
-import { DbExtraModel } from '../db/mongo'
+import { zhDictionary } from '@/db/local'
+import { DbExtraModel, sDbExtra, sDbExtraCreate } from '@/db/mongo'
+import { checkAuthorize } from '@/util/api'
+import { sDictionaryType, sSort, sStringNonEmpty } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  f.post(
-    '/q',
-    {
-      schema: {
-        tags: ['extra'],
-        summary: 'Query for user-created items',
-        body: {
-          type: 'object',
-          properties: {
-            cond: { type: 'object' },
-            projection: {
-              type: 'object',
-              additionalProperties: { type: 'number' },
-            },
-            sort: {
-              type: 'object',
-              additionalProperties: { type: 'number' },
-            },
-            offset: { type: 'integer' },
-            limit: { type: ['integer', 'null'] },
-            hasCount: { type: 'boolean' },
-          },
-        },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              result: { type: 'array', items: {} },
-              offset: { type: 'integer' },
-              limit: { type: ['integer', 'null'] },
-              count: { type: 'integer' },
-            },
-          },
-        },
-      },
-    },
-    async (req, reply) => {
-      const u = req.session.user
-      if (!u || !u._id) {
-        reply.status(401).send()
-        return
-      }
+  const tags = ['extra']
 
-      const {
-        cond = {},
-        projection,
-        sort = { updatedAt: -1 },
-        offset = 0,
-        limit = 10,
-        hasCount = true,
-      } = req.body
-
-      const match = [{ $match: { userId: u._id } }, { $match: cond }]
-
-      const [rData, rCount = []] = await Promise.all([
-        DbExtraModel.aggregate([
-          ...match,
-          { $sort: sort },
-          { $skip: offset },
-          ...(limit ? [{ $limit: limit }] : []),
-          ...(projection ? [{ $project: projection }] : []),
-        ]),
-        hasCount
-          ? DbExtraModel.aggregate([...match, { $count: 'count' }])
-          : undefined,
-      ])
-
-      return {
-        result: rData,
-        offset,
-        limit,
-        count: hasCount ? (rCount[0] || {}).count || 0 : undefined,
-      }
-    }
-  )
-
-  f.post(
-    '/match',
-    {
-      schema: {
-        tags: ['extra'],
-        summary: 'Get data for a given user-created item',
-        body: {
-          type: 'object',
-          required: ['entry'],
-          properties: {
-            entry: { type: 'string' },
-          },
-        },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              result: {
-                type: 'object',
-                properties: {
-                  chinese: { type: 'string' },
-                  pinyin: { type: 'string' },
-                  english: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-    async (req) => {
-      const { entry } = req.body
-      const r = await DbExtraModel.findOne({ chinese: entry })
-
-      return {
-        result: r ? r.toJSON() : {},
-      }
-    }
-  )
-
-  f.put(
-    '/',
-    {
-      schema: {
-        tags: ['extra'],
-        summary: 'Create a user-created item',
-        body: {
-          type: 'object',
-          required: ['chinese', 'english'],
-          properties: {
-            chinese: { type: 'string' },
-            pinyin: { type: 'string' },
-            english: { type: 'string' },
-          },
-        },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              type: { type: 'string' },
-            },
-          },
-        },
-      },
-    },
-    async (req, reply) => {
-      const u = req.session.user
-      if (!u || !u._id) {
-        reply.status(401).send()
-        return
-      }
-
-      const { chinese, pinyin, english } = req.body
-
-      if (
-        zhVocab.count({
-          $or: [{ simplified: chinese }, { traditional: chinese }],
-        }) > 0
-      ) {
-        return {
-          type: 'vocab',
-        }
-      }
-
-      if (zhSentence.count({ chinese }) > 0) {
-        return {
-          type: 'sentence',
-        }
-      }
-
-      if (
-        zhToken.count({
-          entry: chinese,
-          // @ts-ignore
-          english: { $exists: true },
-        })
-      ) {
-        return {
-          type: 'hanzi',
-        }
-      }
-
-      await DbExtraModel.create({
-        userId: u._id,
-        chinese,
-        pinyin,
-        english,
-      })
-
-      return {
-        type: 'extra',
-      }
-    }
-  )
-
-  f.patch(
-    '/',
-    {
-      schema: {
-        tags: ['extra'],
-        summary: 'Update user-created items',
-        body: {
-          type: 'object',
-          required: ['ids', 'set'],
-          properties: {
-            ids: { type: 'array', items: { type: 'string' } },
-            set: { type: 'object' },
-          },
-        },
-      },
-    },
-    async (req, reply) => {
-      const { ids, set } = req.body
-
-      await DbExtraModel.updateMany(
-        { _id: { $in: ids } },
-        {
-          $set: set,
-        }
-      )
-
-      reply.status(201).send()
-    }
-  )
-
-  f.delete(
-    '/',
-    {
-      schema: {
-        tags: ['extra'],
-        summary: 'Delete user-created items',
-        body: {
-          type: 'object',
-          required: ['ids'],
-          properties: {
-            ids: { type: 'array', items: { type: 'string' } },
-          },
-        },
-      },
-    },
-    async (req, reply) => {
-      const u = req.session.user
-      if (!u) {
-        reply.status(401).send()
-        return
-      }
-
-      const { ids } = req.body
-      await DbExtraModel.purgeMany(u._id, { _id: { $in: ids } })
-      reply.status(201).send()
-    }
-  )
+  getQ()
+  getMatch()
+  doCreate()
+  doUpdate()
+  doDelete()
 
   next()
+
+  function getQ() {
+    const sQuery = S.shape({
+      select: S.list(S.string()).minItems(1),
+      sort: S.list(sSort(['entry', 'reading', 'english', 'updatedAt']))
+        .minItems(1)
+        .optional(),
+      page: S.integer().minimum(1),
+      perPage: S.integer().minimum(10).optional(),
+    })
+
+    const sResponse = S.shape({
+      result: S.list(sDbExtra),
+      count: S.integer().optional(),
+    })
+
+    f.get<typeof sQuery.type>(
+      '/q',
+      {
+        schema: {
+          tags,
+          summary: 'Query for user-created items',
+          querystring: sQuery.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply): Promise<typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return undefined as any
+        }
+
+        const {
+          select,
+          sort = ['-updatedAt'],
+          page = 1,
+          perPage = 10,
+        } = req.query
+        const offset = (page - 1) * perPage
+
+        const result = await DbExtraModel.find({
+          userId,
+        })
+          .sort(sort.join(' '))
+          .select(select.join(' '))
+          .skip(offset)
+          .limit(perPage)
+
+        const count = await DbExtraModel.countDocuments({ userId })
+
+        return {
+          result,
+          count,
+        }
+      }
+    )
+  }
+
+  function getMatch() {
+    const sQuery = S.shape({
+      entry: sStringNonEmpty,
+      select: S.list(S.string()).minItems(1),
+    })
+
+    const sResponse = sDbExtra
+
+    f.get<typeof sQuery.type>(
+      '/',
+      {
+        schema: {
+          tags,
+          summary: 'Get data for a given user-created item',
+          querystring: sQuery.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply): Promise<typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return undefined as any
+        }
+
+        const { entry, select } = req.query
+        const r = await DbExtraModel.findOne({
+          userId,
+          entry,
+        }).select(select.join(' '))
+
+        return r || {}
+      }
+    )
+  }
+
+  function doCreate() {
+    const sBody = sDbExtraCreate
+
+    const sResponse = S.shape({
+      existingType: sDictionaryType.optional(),
+      created: S.boolean().optional(),
+    })
+
+    f.put<any, any, any, typeof sBody.type>(
+      '/',
+      {
+        schema: {
+          tags,
+          summary: 'Create a user-created item',
+          body: sBody.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply): Promise<typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return undefined as any
+        }
+
+        const { entry, reading, english } = req.body
+
+        if (
+          zhDictionary.count({
+            $and: [{ $or: [{ entry }, { alt: entry }] }, { type: 'vocab' }],
+          }) > 0
+        ) {
+          return {
+            existingType: 'vocab',
+          }
+        }
+
+        {
+          const existing = zhDictionary.findOne({ entry })
+          if (existing) {
+            return {
+              existingType: existing.type,
+            }
+          }
+        }
+
+        await DbExtraModel.create({
+          userId,
+          entry,
+          reading: reading || makePinyin(entry, { keepRest: true }),
+          english,
+        })
+
+        return {
+          created: true,
+        }
+      }
+    )
+  }
+
+  function doUpdate() {
+    const sBody = S.shape({
+      id: S.anyOf(S.string(), S.list(S.string()).minItems(1)),
+      set: sDbExtra,
+    })
+
+    f.patch<any, any, any, typeof sBody.type>(
+      '/',
+      {
+        schema: {
+          tags,
+          summary: 'Update user-created items',
+          body: {
+            type: 'object',
+            required: ['ids', 'set'],
+            properties: {
+              ids: { type: 'array', items: { type: 'string' } },
+              set: { type: 'object' },
+            },
+          },
+        },
+      },
+      async (req, reply): Promise<void> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { id, set } = req.body
+
+        await DbExtraModel.updateMany(
+          { _id: { $in: Array.isArray(id) ? id : [id] } },
+          {
+            $set: set,
+          }
+        )
+
+        reply.status(201).send()
+      }
+    )
+  }
+
+  function doDelete() {
+    const sQuery = S.shape({
+      id: S.anyOf(S.string(), S.list(S.string()).minItems(1)),
+      set: sDbExtra,
+    })
+
+    f.delete<typeof sQuery.type>(
+      '/',
+      {
+        schema: {
+          tags,
+          summary: 'Delete user-created items',
+          querystring: sQuery.valueOf(),
+        },
+      },
+      async (req, reply): Promise<void> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { id } = req.query
+
+        await DbExtraModel.purgeMany(userId, {
+          _id: { $in: Array.isArray(id) ? id : [id] },
+        })
+
+        reply.status(201).send()
+      }
+    )
+  }
 }

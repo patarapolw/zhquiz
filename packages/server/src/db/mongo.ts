@@ -2,22 +2,22 @@ import {
   getModelForClass,
   index,
   prop,
-  Ref,
   setGlobalOptions,
   Severity,
 } from '@typegoose/typegoose'
-import dotProp from 'dot-prop'
+import S from 'jsonschema-definer'
 import { nanoid } from 'nanoid'
+
+import { sDateTime, sStringNonEmpty } from '@/util/schema'
 
 import { getNextReview, repeatReview, srsMap } from './quiz'
 
 setGlobalOptions({ options: { allowMixed: Severity.ALLOW } })
 
 export class DbUser {
+  @prop({ default: () => nanoid() }) _id?: string
   @prop({ required: true, unique: true }) email!: string
   @prop() name!: string
-  @prop({ default: 1 }) levelMin?: number
-  @prop({ default: 60 }) level?: number
   @prop() settings?: Record<string, any>
 
   static async signIn(email: string, name: string) {
@@ -40,7 +40,7 @@ export class DbUser {
 
   static async purgeOne(userId: string) {
     await DbExtraModel.purgeMany(userId)
-    await DbCardModel.purgeMany(userId)
+    await DbQuizModel.deleteMany({ userId })
     await DbUserModel.deleteOne({ userId })
   }
 }
@@ -49,54 +49,41 @@ export const DbUserModel = getModelForClass(DbUser, {
   schemaOptions: { collection: 'user', timestamps: true },
 })
 
-@index({ userId: 1, type: 1, item: 1, direction: 1 }, { unique: true })
-export class DbCard {
+export const sQuizStat = S.shape({
+  streak: S.shape({
+    right: S.integer().minimum(0),
+    wrong: S.integer().minimum(0),
+    maxRight: S.integer().minimum(0),
+    maxWrong: S.integer().minimum(0),
+  }),
+  lastRight: sDateTime.optional(),
+  lastWrong: sDateTime.optional(),
+})
+
+export const sDbQuiz = S.shape({
+  type: S.string().optional(),
+  front: S.string().optional(),
+  back: S.string().optional(),
+  mnemonic: S.string().optional(),
+  tag: S.list(S.string()).optional(),
+  nextReview: sDateTime.optional(),
+  srsLevel: S.integer().optional(),
+  stat: sQuizStat.optional(),
+})
+
+@index({ userId: 1, type: 1, entry: 1, direction: 1 }, { unique: true })
+class DbQuiz {
   @prop({ default: () => nanoid() }) _id?: string
-  @prop({ required: true, index: true, ref: 'DbUser' }) userId!: Ref<DbUser>
+  @prop({ required: true, index: true, ref: 'DbUser' }) userId!: string
   @prop({ required: true }) type!: string
-  @prop({ required: true }) item!: string
-  @prop({ required: true }) direction!: string
+  @prop({ required: true }) entry!: string
   @prop({ default: '' }) front?: string
   @prop({ default: '' }) back?: string
   @prop({ default: '' }) mnemonic?: string
   @prop({ default: () => [] }) tag?: string[]
-
-  static async purgeMany(userId: string, cond?: any) {
-    cond = cond
-      ? {
-          $and: [cond, { userId }],
-        }
-      : { userId }
-
-    await DbQuizModel.deleteMany({
-      cardId: {
-        $in: (await DbCardModel.find(cond).select({ _id: 1 })).map(
-          (el) => el._id
-        ),
-      },
-    })
-
-    await DbCardModel.deleteMany(cond)
-  }
-}
-
-export const DbCardModel = getModelForClass(DbCard, {
-  schemaOptions: { collection: 'card', timestamps: true },
-})
-
-class DbQuiz {
-  @prop({ default: () => repeatReview() }) nextReview?: Date
-  @prop({ default: 0 }) srsLevel?: number
-  @prop({ default: () => ({}) }) stat?: {
-    streak?: {
-      right?: number
-      wrong?: number
-      maxRight?: number
-      maxWrong?: number
-    }
-    lastRight?: Date
-    lastWrong?: Date
-  }
+  @prop() nextReview?: Date
+  @prop() srsLevel?: number
+  @prop() stat?: typeof sQuizStat.type
 
   @prop({ required: true }) cardId!: string
 
@@ -114,45 +101,30 @@ class DbQuiz {
 
   private _updateSrsLevel(dSrsLevel: number) {
     return () => {
-      this.stat = this.stat || {}
+      this.stat = this.stat || {
+        streak: {
+          right: 0,
+          wrong: 0,
+          maxRight: 0,
+          maxWrong: 0,
+        },
+      }
 
       if (dSrsLevel > 0) {
-        dotProp.set(
-          this.stat,
-          'streak.right',
-          dotProp.get(this.stat, 'streak.right', 0) + 1
-        )
-        dotProp.set(this.stat, 'streak.wrong', 0)
-        dotProp.set(this.stat, 'lastRight', new Date())
+        this.stat.streak.right++
+        this.stat.streak.wrong = 0
+        this.stat.lastRight = new Date()
 
-        if (
-          dotProp.get(this.stat, 'streak.right', 1) >
-          dotProp.get(this.stat, 'streak.maxRight', 0)
-        ) {
-          dotProp.set(
-            this.stat,
-            'streak.maxRight',
-            dotProp.get(this.stat, 'streak.right', 1)
-          )
+        if (this.stat.streak.right > this.stat.streak.maxRight) {
+          this.stat.streak.maxRight = this.stat.streak.right
         }
       } else if (dSrsLevel < 0) {
-        dotProp.set(
-          this.stat,
-          'streak.wrong',
-          dotProp.get(this.stat, 'streak.wrong', 0) + 1
-        )
-        dotProp.set(this.stat, 'streak.right', 0)
-        dotProp.set(this.stat, 'lastWrong', new Date())
+        this.stat.streak.wrong++
+        this.stat.streak.right = 0
+        this.stat.lastWrong = new Date()
 
-        if (
-          dotProp.get(this.stat, 'streak.wrong', 1) >
-          dotProp.get(this.stat, 'streak.maxWrong', 0)
-        ) {
-          dotProp.set(
-            this.stat,
-            'streak.maxWrong',
-            dotProp.get(this.stat, 'streak.wrong', 1)
-          )
+        if (this.stat.streak.wrong > this.stat.streak.maxWrong) {
+          this.stat.streak.maxWrong = this.stat.streak.wrong
         }
       }
 
@@ -181,12 +153,26 @@ export const DbQuizModel = getModelForClass(DbQuiz, {
   schemaOptions: { collection: 'quiz', timestamps: true },
 })
 
-@index({ userId: 1, chinese: 1 }, { unique: true })
+export const sDbExtra = S.shape({
+  _id: S.string().optional(),
+  entry: S.string().optional(),
+  reading: S.string().optional(),
+  english: S.string().optional(),
+  updatedAt: sDateTime.optional(),
+})
+
+export const sDbExtraCreate = S.shape({
+  entry: sStringNonEmpty,
+  reading: sStringNonEmpty.optional(),
+  english: sStringNonEmpty,
+})
+
+@index({ userId: 1, entry: 1 }, { unique: true })
 class DbExtra {
   @prop({ default: () => nanoid() }) _id?: string
-  @prop({ required: true, index: true, ref: 'DbUser' }) userId!: Ref<DbUser>
-  @prop({ required: true }) chinese!: string
-  @prop() pinyin?: string
+  @prop({ required: true, index: true, ref: 'DbUser' }) userId!: string
+  @prop({ required: true }) entry!: string
+  @prop({ required: true }) reading!: string
   @prop({ required: true }) english!: string
 
   static async purgeMany(userId: string, cond?: any) {
@@ -197,12 +183,12 @@ class DbExtra {
       : { userId }
 
     const rs = await DbExtraModel.find(cond).select({
-      chinese: 1,
+      entry: 1,
     })
 
     if (rs.length > 0) {
-      await DbCardModel.deleteMany({
-        item: { $in: rs.map((el) => el.chinese!) },
+      await DbQuizModel.deleteMany({
+        entry: { $in: rs.map((el) => el.entry!) },
         type: 'extra',
         userId,
       })

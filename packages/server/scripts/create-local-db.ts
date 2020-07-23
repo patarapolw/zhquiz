@@ -7,16 +7,14 @@ import S from 'jsonschema-definer'
 import XRegExp from 'xregexp'
 
 import {
-  sSentence,
+  sDictionary,
   sToken,
-  sVocab,
   zh,
+  zhDictionary,
   zhInit,
-  zhSentence,
   zhToken,
-  zhVocab,
-} from '../src/db/local'
-import { ensureSchema } from '../src/util/schema'
+} from '@/db/local'
+import { ensureSchema } from '@/util/schema'
 
 async function main() {
   // require('log-buffer')
@@ -54,40 +52,62 @@ async function main() {
 
   await zhInit()
 
-  const sSet = new Set<string>()
+  const sMap = new Map<
+    string,
+    {
+      priority: number
+    }
+  >()
   db.prepare(
     /* sql */ `
   SELECT chinese, pinyin, english, frequency, [level] FROM sentence
   `
   )
     .all()
-    .map(({ chinese, pinyin, english, frequency, level }) => {
-      chinese = cleanOl(chinese)
-      if (sSet.has(chinese)) {
-        return
-      }
-      sSet.add(chinese)
-
-      zhSentence.insertOne(
-        ensureSchema(sSentence, {
-          chinese,
-          pinyin: pinyin || makePinyin(chinese, { keepRest: true }),
-          english: cleanOl(english),
-          frequency: frequency || undefined,
-          level: level || undefined,
+    .map(
+      ({
+        chinese,
+        pinyin,
+        english,
+        frequency,
+        level,
+      }: {
+        chinese: string
+        pinyin?: string
+        english: string
+        frequency?: number
+        level?: number
+      }) => {
+        chinese = cleanOl(chinese)
+        if (sMap.has(chinese)) {
+          return
+        }
+        sMap.set(chinese, {
           priority:
-            (Array.from<string>(chinese.match(reHan)).every((c) =>
+            (Array.from<string>(chinese.match(reHan) || []).every((c) =>
               simpChars.has(c)
             )
               ? 4
               : 3) + (/a-z/i.test(chinese) ? -2 : 0),
         })
-      )
-    })
+
+        zhDictionary.insertOne(
+          ensureSchema(sDictionary, {
+            type: 'sentence',
+            entry: chinese,
+            reading: [pinyin || makePinyin(chinese, { keepRest: true })],
+            english: [cleanOl(english)],
+            frequency: frequency || undefined,
+            level: level || undefined,
+          })
+        )
+      }
+    )
 
   const maxFreq =
-    zhSentence
+    zhDictionary
       .find({
+        type: 'sentence',
         // @ts-ignore
         frequency: { $exists: true },
       })
@@ -96,11 +116,12 @@ async function main() {
         0
       ) + 1
 
-  zhSentence.updateWhere(
+  zhDictionary.updateWhere(
     () => true,
     (s) => {
-      if (s.frequency && s.priority) {
-        s.priority = s.priority + s.frequency / maxFreq
+      if (s.frequency) {
+        const { priority = 0 } = sMap.get(s.entry) || {}
+        s.frequency = priority + s.frequency / maxFreq
       }
 
       return s
@@ -124,12 +145,12 @@ async function main() {
 
   db.prepare(
     /* sql */ `
-  SELECT [entry], sub, sup, [var] variants, frequency, tag, pinyin, english
+  SELECT [entry], sub, sup, [var] variants, frequency, pinyin, english
   FROM token
   `
   )
     .all()
-    .map(({ entry, sub, sup, variants, frequency, tag, pinyin, english }) => {
+    .map(({ entry, sub, sup, variants, frequency, pinyin, english }) => {
       if (reHan1.test(entry)) {
         zhToken.insertOne(
           ensureSchema(sToken, {
@@ -137,13 +158,21 @@ async function main() {
             sub: sub || undefined,
             sup: sup || undefined,
             variants: variants || undefined,
-            frequency: frequency || undefined,
-            level: hLevelMap.get(entry),
-            tag: tag ? tag.split(' ') : undefined,
-            pinyin: pinyin || undefined,
-            english: english ? addSpaceToSlash(english) : undefined,
           })
         )
+
+        if (english) {
+          zhDictionary.insertOne(
+            ensureSchema(sDictionary, {
+              type: 'hanzi',
+              entry,
+              frequency: frequency || undefined,
+              level: hLevelMap.get(entry),
+              reading: [pinyin || makePinyin(entry, { keepRest: true })],
+              english: [addSpaceToSlash(english)],
+            })
+          )
+        }
       }
     })
 
@@ -162,7 +191,7 @@ async function main() {
       vMap.set(simplified, data)
     })
 
-  zhVocab.insert(
+  zhDictionary.insert(
     Array.from(vMap).flatMap(([simplified, vs]) => {
       const tradSet = new Set<string>()
       const pinSet = new Set<string>()
@@ -180,10 +209,11 @@ async function main() {
         }
       })
 
-      return ensureSchema(sVocab, {
-        simplified,
-        traditional: tradSet.size ? Array.from(tradSet).sort() : undefined,
-        pinyin: Array.from(pinSet).sort(),
+      return ensureSchema(sDictionary, {
+        type: 'vocab',
+        entry: simplified,
+        alt: tradSet.size ? Array.from(tradSet).sort() : undefined,
+        reading: Array.from(pinSet).sort(),
         english: Array.from(engSet).sort(),
         frequency: freqSet.size ? Math.max(...freqSet) : undefined,
         level: vLevelMap.get(simplified),
