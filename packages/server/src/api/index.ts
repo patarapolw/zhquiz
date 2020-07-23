@@ -24,10 +24,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   f.register(swagger, {
     routePrefix: '/doc',
     swagger: {
-      info: {
-        title: 'Swagger API',
-        version: '0.1.0',
-      },
       consumes: ['application/json'],
       produces: ['application/json'],
       servers: [

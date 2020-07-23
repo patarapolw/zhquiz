@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 
-import { hsk, zhToken } from '../db/local'
+import { zhToken } from '../db/local'
 import { DbCardModel } from '../db/mongo'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
@@ -82,20 +82,14 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       const { levelMin, level } = req.body
 
       const hsMap = new Map<string, number>()
-
-      Object.entries(hsk)
-        .map(([lv, vs]) => ({ lv: parseInt(lv), vs }))
-        .filter(({ lv }) => (level ? lv <= level : true))
-        .filter(({ lv }) => (levelMin ? lv >= levelMin : true))
-        .map(({ lv, vs }) => {
-          vs.map((v) => {
-            v.split('').map((h) => {
-              const hLevel = hsMap.get(h)
-              if (!hLevel || hLevel > lv) {
-                hsMap.set(h, lv)
-              }
-            })
-          })
+      zhToken
+        .find({
+          $and: [{ level: { $gte: level } }, { level: { $lte: levelMin } }],
+        })
+        .map(({ entry, level }) => {
+          if (level) {
+            hsMap.set(entry, level)
+          }
         })
 
       const reviewing = new Set<string>(

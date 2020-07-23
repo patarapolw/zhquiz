@@ -1,21 +1,10 @@
-import makePinyin from 'chinese-to-pinyin'
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { hsk, zhSentence, zhVocab } from '../db/local'
+import { zhSentence, zhVocab } from '../db/local'
 import { DbCardModel } from '../db/mongo'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const isSimp = (s = '') => {
-    const arr = [
-      'simplified',
-      'simplified-english',
-      'traditional',
-      'traditional-english',
-    ]
-    return -(arr.reverse().indexOf(s) + 1) / arr.length
-  }
-
   f.post(
     '/q',
     {
@@ -70,10 +59,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           .sort(({ frequency: f1 = 0 }, { frequency: f2 = 0 }) => f2 - f1)
           .slice(offset, limit ? offset + limit : undefined)
           .map(({ simplified, traditional, pinyin, english }) => {
-            if (!pinyin) {
-              pinyin = makePinyin(simplified, { keepRest: true })
-            }
-
             return { simplified, traditional, pinyin, english }
           }),
         count: zhVocab.count({
@@ -148,25 +133,17 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
               $or: [{ simplified: entry }, { traditional: entry }],
             })
             .map(({ simplified, traditional, pinyin, english }) => {
-              if (!pinyin) {
-                pinyin = makePinyin(simplified, { keepRest: true })
-              }
-
               return { simplified, traditional, pinyin, english }
             }),
           sentences: zhSentence
+            .chain()
             .find({
               chinese: { $contains: entry },
             })
-            .sort(({ type: t1 }, { type: t2 }) => {
-              return isSimp(t1) - isSimp(t2) + 0.5 - Math.random()
-            })
+            .simplesort('priority', true)
+            .data()
             .slice(0, 10)
             .map(({ chinese, pinyin, english }) => {
-              if (!pinyin) {
-                pinyin = makePinyin(entry, { keepRest: true })
-              }
-
               return { chinese, pinyin, english }
             }),
         },
@@ -207,18 +184,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       }
 
       const { levelMin, level } = req.body
-
-      let vs = Object.entries(hsk)
-        .map(([lv, vs]) => ({ lv: parseInt(lv), vs }))
-        .filter(({ lv }) => (level ? lv <= level : true))
-        .filter(({ lv }) => (level ? lv >= levelMin : true))
-        .reduce(
-          (prev, { lv, vs }) => [...prev, ...vs.map((v) => ({ v, lv }))],
-          [] as {
-            v: string
-            lv: number
-          }[]
-        )
+      const vMap = new Map<string, number>()
+      zhVocab
+        .find({
+          $and: [{ level: { $lte: level } }, { level: { $gte: levelMin } }],
+        })
+        .map(({ simplified, level }) => {
+          if (level) {
+            vMap.set(simplified, level)
+          }
+        })
 
       const reviewing = new Set<string>(
         (
@@ -226,7 +201,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             {
               $match: {
                 userId: u._id,
-                item: { $in: vs.map(({ v }) => v) },
+                item: { $in: Array.from(vMap.keys()) },
                 type: 'vocab',
               },
             },
@@ -251,24 +226,24 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         ).map((el) => el.item)
       )
 
-      vs = vs.filter(({ v }) => !reviewing.has(v))
+      const vs = Array.from(vMap).filter(([h]) => !reviewing.has(h))
       if (vs.length === 0) {
         return {}
       }
 
-      const v = vs[Math.floor(Math.random() * vs.length)] || {}
+      const [v, lv] = vs[Math.floor(Math.random() * vs.length)] || {}
 
       const r =
         zhVocab.findOne({
-          simplified: v.v,
+          simplified: v,
           // @ts-ignore
           english: { $exists: true },
         }) || ({} as any)
 
       return {
-        result: v.v,
+        result: v,
         english: r.english,
-        level: v.lv,
+        level: lv,
       }
     }
   )
@@ -299,12 +274,11 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         return
       }
 
-      const hskLevelMap = new Map<string, number>()
-      Object.entries(hsk).map(([_lv, vs]) => {
-        const lv = parseInt(_lv)
-        vs.map((v) => {
-          hskLevelMap.set(v, lv)
-        })
+      const vMap = new Map<string, number>()
+      zhVocab.find({}).map(({ simplified, level }) => {
+        if (level) {
+          vMap.set(simplified, level)
+        }
       })
 
       const r = await DbCardModel.aggregate([
@@ -312,7 +286,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           $match: {
             userId: u._id,
             item: {
-              $in: Array.from(hskLevelMap.keys()),
+              $in: Array.from(vMap.keys()),
             },
             type: 'vocab',
           },
@@ -340,7 +314,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       })
 
       return {
-        result: Array.from(hskLevelMap).map(([entry, level]) => ({
+        result: Array.from(vMap).map(([entry, level]) => ({
           entry,
           level,
           srsLevel: srsLevelMap.get(entry),

@@ -1,0 +1,214 @@
+hanzi:
+  se:
+    front: |
+      #### Hanzi Chinese-English
+
+      ```pug parsed
+      .font-han.text-w-normal(style="font-size: 3rem;") {{entry}}
+      ```
+    back: |
+      ```pug parsed
+      div
+        .inline-block.mr-4 {{pinyin}}
+        x-speak-button.speak-item--1 {{entry}}
+      
+      div {{english}}
+
+      {{#if vs.length}}
+      ul
+        {{#each vs}}
+        li
+          span.font-zh-simp {{simplified}}&nbsp;
+          {{#if traditional}}span.font-zh-trad {{join traditional '|'}}&nbsp;{{/if}}
+          span [{{join pinyin '|'}}]&nbsp;
+          span {{join english '|'}}
+        {{/each}}
+      {{/if}}
+      ```
+  ec:
+    front: |
+      #### Hanzi English-Chinese
+
+      {{mask english entry}}
+    back: |
+      ```pug parsed
+      .hanzi-display {{entry}}
+      
+      div
+        .inline-block.mr-4 {{pinyin}}
+        x-speak-button.speak-item--1 {{entry}}
+      
+      div {{english}}
+
+      {{#if vs.length}}
+      ul
+        {{#each vs}}
+        li
+          span.font-zh-simp {{simplified}}&nbsp;
+          {{#if traditional}}span.font-zh-trad {{join traditional '|'}}&nbsp;{{/if}}
+          span [{{join pinyin '|'}}]&nbsp;
+          span {{join english '|'}}
+        {{/each}}
+      {{/if}}
+      ```
+vocab:
+  se:
+    front: |
+      #### Vocab Simplified-English
+
+      ```pug parsed
+      .font-zh-simp.text-w-normal(style="font-size: 2rem;") {{entry}}
+      ```
+    back: |
+      ```pug parsed
+      {{#if traditional}}
+      div
+        .font-zh-trad.text-w-normal.inline-block.mr-4(style="font-size: 1.7rem;") {{join traditional ' | '}}
+        x-speak-button.speak-item--1 {{entry}}
+      {{/if}}
+
+      div
+        .inline-block.mr-4 {{join pinyin ' | '}}
+        {{#unless traditional}}x-speak-button.speak-item--1 {{entry}}{{/unless}}
+
+      ul
+        {{#each english}}
+        li {{this}}
+        {{/each}}
+
+      {{#if ss.length}}
+      ul
+        {{#each ss}}
+        li
+          span.font-zh-simp {{chinese}} 
+          x-speak-button.speak-item-{{@index}} {{chinese}}
+          ul
+            li {{english}}
+        {{/each}}
+      {{/if}}
+      ```
+  te:
+    required: [traditional]
+    front: |
+      #### Vocab Traditional-English
+
+      ```pug parsed
+      .font-zh-trad.text-w-normal(style="font-size: 1.7rem;") {{join traditional ' | '}}
+      ```
+    back: |
+      ```pug parsed
+      div
+        .font-zh-simp.text-w-normal.inline-block.mr-4(style="font-size: 2rem;") {{entry}}
+        x-speak-button.speak-item--1 {{entry}}
+
+      div {{join pinyin ' | '}}
+
+      ul
+        {{#each english}}
+        li {{this}}
+        {{/each}}
+
+      {{#if ss.length}}
+      ul
+        {{#each ss}}
+        li
+          span.font-zh-simp {{chinese}} 
+          x-speak-button.speak-item-{{@index}} {{chinese}}
+          ul
+            li {{english}}
+        {{/each}}
+      {{/if}}
+      ```
+  ec:
+    front: |
+      #### Vocab English-Chinese
+
+      {{#each english}}
+      - {{mask this ../entry ../pinyin ../traditional}}
+      {{/each}}  
+    back: |
+      ```pug parsed
+      div
+        .font-zh-simp.text-w-normal.inline-block.mr-4(style="font-size: 2rem;") {{entry}}
+        x-speak-button.speak-item--1 {{entry}}
+
+      {{#if traditional.length}}
+      .font-zh-trad.text-w-normal(style="font-size: 1.7rem;") {{join traditional ' | '}}
+      {{/if}}
+
+      div {{join pinyin ' | '}}
+
+      ul
+        {{#each english}}
+        li {{this}}
+        {{/each}} 
+
+      {{#if ss.length}}
+      ul
+        {{#each ss}}
+        li
+          span.font-zh-simp {{chinese}} 
+          x-speak-button.speak-item-{{@index}} {{chinese}}
+          ul
+            li {{english}}
+        {{/each}}
+      {{/if}}
+      ```
+sentence:
+  se:
+    front: |
+      #### Sentence Chinese-English
+
+      ```pug parsed
+      h2.font-zh-simp.text-w-normal {{entry}}
+      ```
+    back: |
+      ```pug parsed
+      h2.font-zh-simp.text-w-normal.mr-4 {{entry}}
+      x-speak-button.speak-item--1 {{entry}}
+      ```
+
+      - {{pinyin}}
+      - {{english}}
+  ec:
+    front: |
+      #### Sentence English-Chinese
+
+      - {{english}}
+    back: |
+      ```pug parsed
+      div
+        span.font-zh-simp {{entry}}
+        x-speak-button.speak-item--1 {{entry}}
+      ```
+
+      - {{pinyin}}
+extra:
+  se:
+    front: |
+      #### Extra Chinese-English
+
+      ```pug parsed
+      h2.font-zh-simp.text-w-normal {{entry}}
+      ```
+    back: |
+      ```pug parsed
+      div
+        .inline-block.mr-4 {{pinyin}}
+        x-speak-button.speak-item--1 {{entry}}
+      ```
+
+      {{english}}
+  ec:
+    front: |
+      #### Extra English-Chinese
+
+      {{english}}
+    back: |
+      ```pug parsed
+      div
+        h2.font-zh-simp.text-w-normal.inline-block.mr-4 {{entry}}
+        x-speak-button.speak-item--1 {{entry}}
+      ```
+
+      {{pinyin}}

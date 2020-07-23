@@ -5,16 +5,6 @@ import { zhSentence } from '../db/local'
 import { DbCardModel } from '../db/mongo'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const isSimp = (s = '') => {
-    const arr = [
-      'simplified',
-      'simplified-english',
-      'traditional',
-      'traditional-english',
-    ]
-    return -(arr.reverse().indexOf(s) + 1) / arr.length
-  }
-
   f.post(
     '/match',
     {
@@ -53,17 +43,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
       return {
         result: zhSentence
+          .chain()
           .find({
             chinese: entry,
           })
-          .sort(({ type: t1 }, { type: t2 }) => {
-            return isSimp(t1) - isSimp(t2) + 0.5 - Math.random()
-          })
+          .simplesort('priority', true)
+          .data()
           .map(({ chinese, pinyin, english }) => {
-            if (!pinyin) {
-              pinyin = makePinyin(entry, { keepRest: true })
-            }
-
             return { chinese, pinyin, english }
           }),
       }
@@ -114,12 +100,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
       return {
         result: zhSentence
+          .chain()
           .find({
             chinese: { $contains: entry },
           })
-          .sort(({ type: t1 }, { type: t2 }) => {
-            return isSimp(t1) - isSimp(t2) + 0.5 - Math.random()
-          })
+          .simplesort('priority', true)
+          .data()
           .slice(offset, limit ? offset + limit : undefined)
           .map(({ chinese, pinyin, english }) => {
             if (!pinyin) {
