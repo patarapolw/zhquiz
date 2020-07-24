@@ -75,7 +75,12 @@ export const sDbQuiz = S.shape({
 class DbQuiz {
   @prop({ default: () => nanoid() }) _id?: string
   @prop({ required: true, index: true, ref: 'DbUser' }) userId!: string
-  @prop({ required: true }) type!: string
+  @prop({
+    required: true,
+    validate: (s: string) => /^(hanzi|vocab|sentence|extra)-/.test(s),
+  })
+  type!: string
+
   @prop({ required: true }) entry!: string
   @prop({ default: '' }) front?: string
   @prop({ default: '' }) back?: string
@@ -84,8 +89,6 @@ class DbQuiz {
   @prop() nextReview?: Date
   @prop() srsLevel?: number
   @prop() stat?: typeof sQuizStat.type
-
-  @prop({ required: true }) cardId!: string
 
   markRight() {
     return this._updateSrsLevel(+1)()

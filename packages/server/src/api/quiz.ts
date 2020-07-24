@@ -406,7 +406,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function doCreateByEntry() {
     const sBody = S.shape({
       entry: S.anyOf(S.string(), S.list(S.string())),
-      type: S.list(S.string()),
+      dictionaryType: S.string().enum('hanzi', 'vocab', 'sentence', 'extra'),
     })
 
     f.put<any, any, any, typeof sBody.type>(
@@ -424,18 +424,23 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { entry, type: types } = req.body
+        const { entry, dictionaryType: dictType } = req.body
         const entries = Array.isArray(entry) ? entry : [entry]
 
         try {
           await DbQuizModel.insertMany(
-            entries.flatMap((entry) =>
-              types.map((type) => ({
+            entries.flatMap((entry) => {
+              let types = [`${dictType}-ce`, `${dictType}-ec`]
+              if (dictType === 'vocab') {
+                types = ['vocab-se', 'vocab-te', 'vocab-ec']
+              }
+
+              return types.map((type) => ({
                 userId,
                 entry,
                 type,
               }))
-            ),
+            }),
             { ordered: false }
           )
         } catch (e) {
@@ -453,7 +458,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           })
 
           const failedEntries = Array.from(writeCount)
-            .filter(([, count]) => count >= types.length)
+            .filter(([, count]) => count >= (dictType === 'vocab' ? 3 : 2))
             .map(([k]) => k)
 
           if (failedEntries.length) {
