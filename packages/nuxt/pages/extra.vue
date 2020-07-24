@@ -24,8 +24,8 @@
           <button
             class="button is-success w-full"
             :disabled="!newItem.entry || !newItem.english"
-            @click="addToQuiz(newItem)"
-            @keypress="addToQuiz(newItem)"
+            @click="doCreate()"
+            @keypress="doCreate()"
           >
             Add
           </button>
@@ -189,6 +189,41 @@ export default class ExtraPage extends Vue {
     this.count = count
   }
 
+  async doCreate() {
+    const { existing, _id } = await this.$axios.$put(
+      '/api/extra',
+      this.newItem.entry
+    )
+
+    if (_id) {
+      this.newItem._id = _id
+      this.selected.row = JSON.parse(JSON.stringify(this.newItem))
+      this.$set(this.selected, 'row', this.selected.row)
+    }
+
+    this.newItem = {
+      entry: '',
+      reading: '',
+      english: '',
+    }
+    this.$set(this, 'newItem', this.newItem)
+
+    if (_id) {
+      await Promise.all([this.load(), this.addToQuiz()])
+    } else if (existing) {
+      const { type, entry } = existing
+      await this.$axios.$put('/api/quiz', {
+        entry,
+        type:
+          type === 'vocab'
+            ? ['vocab-se', 'vocab-te', 'vocab-ec']
+            : [`${type}-ce`, `${type}-ec`],
+      })
+
+      this.$buefy.snackbar.open(`Added ${type}: ${entry} to quiz`)
+    }
+  }
+
   async doDelete() {
     if (this.selected.row && this.selected.row._id) {
       await this.$axios.$delete('/api/extra', {
@@ -219,23 +254,16 @@ export default class ExtraPage extends Vue {
     contextmenu.open(evt)
   }
 
-  async addToQuiz(newItem = this.selected.row) {
-    if (newItem) {
-      const { existingType, _id } = await this.$axios.$put(
-        '/api/extra',
-        this.selected.row
+  async addToQuiz() {
+    if (this.selected.row) {
+      await this.$axios.$put('/api/quiz', {
+        entry: this.selected.row.entry,
+        type: ['extra-ce', 'extra-ec'],
+      })
+
+      this.$buefy.snackbar.open(
+        `Added extra: ${this.selected.row.entry} to quiz`
       )
-
-      if (existingType || _id) {
-        this.$buefy.snackbar.open(
-          `Added ${existingType || 'extra'}: ${newItem.entry} to quiz`
-        )
-      }
-
-      if (_id) {
-        this.$set(this, 'newItem', {})
-        await this.load()
-      }
     }
   }
 

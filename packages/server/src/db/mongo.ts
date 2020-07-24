@@ -71,7 +71,7 @@ export const sDbQuiz = S.shape({
   stat: sQuizStat.optional(),
 })
 
-@index({ userId: 1, type: 1, entry: 1, direction: 1 }, { unique: true })
+@index({ userId: 1, type: 1, entry: 1 }, { unique: true })
 class DbQuiz {
   @prop({ default: () => nanoid() }) _id?: string
   @prop({ required: true, index: true, ref: 'DbUser' }) userId!: string

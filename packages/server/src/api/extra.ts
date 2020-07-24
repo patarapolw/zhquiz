@@ -118,7 +118,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sBody = sDbExtraCreate
 
     const sResponse = S.shape({
-      existingType: sDictionaryType.optional(),
+      existing: S.shape({
+        type: sDictionaryType,
+        entry: S.string(),
+      }).optional(),
       _id: S.string().optional(),
     })
 
@@ -142,22 +145,16 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         const { entry, reading, english } = req.body
 
-        if (
-          zhDictionary.count({
+        const existing =
+          zhDictionary.findOne({
             $and: [{ $or: [{ entry }, { alt: entry }] }, { type: 'vocab' }],
-          }) > 0
-        ) {
+          }) || zhDictionary.findOne({ entry })
+        if (existing) {
           return {
-            existingType: 'vocab',
-          }
-        }
-
-        {
-          const existing = zhDictionary.findOne({ entry })
-          if (existing) {
-            return {
-              existingType: existing.type,
-            }
+            existing: {
+              type: existing.type,
+              entry: existing.entry,
+            },
           }
         }
 

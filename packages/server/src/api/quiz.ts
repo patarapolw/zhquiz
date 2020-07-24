@@ -405,12 +405,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doCreateByEntry() {
     const sBody = S.shape({
-      entries: S.list(S.string()),
-      type: S.string(),
+      entry: S.anyOf(S.string(), S.list(S.string())),
+      type: S.list(S.string()),
     })
 
     f.put<any, any, any, typeof sBody.type>(
-      '/entries',
+      '/',
       {
         schema: {
           tags,
@@ -424,15 +424,47 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { entries, type = 'user' } = req.body
+        const { entry, type: types } = req.body
+        const entries = Array.isArray(entry) ? entry : [entry]
 
-        await DbQuizModel.insertMany(
-          entries.map((entry) => ({
-            userId,
-            entry,
-            type,
-          }))
-        )
+        try {
+          await DbQuizModel.insertMany(
+            entries.flatMap((entry) =>
+              types.map((type) => ({
+                userId,
+                entry,
+                type,
+              }))
+            ),
+            { ordered: false }
+          )
+        } catch (e) {
+          if (e.nInserted === 0) {
+            reply.status(304).send({
+              error: 'No quiz items created',
+            })
+            return
+          }
+
+          const writeCount = new Map<string, number>()
+
+          ;(e.writeErrors || []).map(({ op: { entry } }: any) => {
+            writeCount.set(entry, (writeCount.get(entry) || 0) + 1)
+          })
+
+          const failedEntries = Array.from(writeCount)
+            .filter(([, count]) => count >= types.length)
+            .map(([k]) => k)
+
+          if (failedEntries.length) {
+            reply.status(304).send({
+              error: `The following quiz items failed to create: ${failedEntries.join(
+                ','
+              )}`,
+            })
+            return
+          }
+        }
 
         reply.status(201).send()
       }
