@@ -119,7 +119,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
     const sResponse = S.shape({
       existingType: sDictionaryType.optional(),
-      created: S.boolean().optional(),
+      _id: S.string().optional(),
     })
 
     f.put<any, any, any, typeof sBody.type>(
@@ -161,7 +161,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           }
         }
 
-        await DbExtraModel.create({
+        const extra = await DbExtraModel.create({
           userId,
           entry,
           reading: reading || makePinyin(entry, { keepRest: true }),
@@ -169,7 +169,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         })
 
         return {
-          created: true,
+          _id: extra._id,
         }
       }
     )
@@ -219,8 +219,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function doDelete() {
     const sQuery = S.shape({
-      id: S.anyOf(S.string(), S.list(S.string()).minItems(1)),
-      set: sDbExtra,
+      id: S.string(),
     })
 
     f.delete<typeof sQuery.type>(
@@ -241,7 +240,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const { id } = req.query
 
         await DbExtraModel.purgeMany(userId, {
-          _id: { $in: Array.isArray(id) ? id : [id] },
+          _id: id,
         })
 
         reply.status(201).send()

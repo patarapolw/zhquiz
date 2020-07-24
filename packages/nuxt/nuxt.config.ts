@@ -52,6 +52,7 @@ export default (): Configuration => {
      */
     plugins: [
       '~/plugins/axios-loading.client.ts',
+      '~/plugins/axios-query.ts',
       '~/plugins/codemirror.client.js',
       '~/plugins/filter.ts',
       '~/plugins/firebase-auth.client.ts',

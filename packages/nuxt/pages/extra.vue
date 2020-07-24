@@ -3,14 +3,14 @@
     <div class="ExtraPage container">
       <nav class="new-item-panel">
         <div class="w-full flex-grow">
-          <b-field label="Chinese">
-            <b-input v-model="newItem.chinese" />
+          <b-field label="Entry">
+            <b-input v-model="newItem.entry" />
           </b-field>
         </div>
 
         <div class="w-full flex-grow">
-          <b-field label="Pinyin">
-            <b-input v-model="newItem.pinyin" />
+          <b-field label="Reading">
+            <b-input v-model="newItem.reading" />
           </b-field>
         </div>
 
@@ -23,9 +23,9 @@
         <div class="tablet:w-full">
           <button
             class="button is-success w-full"
-            :disabled="!newItem.chinese || !newItem.english"
-            @click="addNewItem"
-            @keypress="addNewItem"
+            :disabled="!newItem.entry || !newItem.english"
+            @click="addToQuiz(newItem)"
+            @keypress="addToQuiz(newItem)"
           >
             Add
           </button>
@@ -33,8 +33,8 @@
       </nav>
 
       <b-table
-        :data="data"
-        :columns="dataHeader"
+        :data="tableData"
+        :columns="tableHeader"
         checkable
         paginated
         backend-pagination
@@ -51,52 +51,51 @@
     <client-only>
       <vue-context ref="contextmenu" lazy>
         <li>
-          <a role="button" @click.prevent="speak" @keypress.prevent="speak">
+          <a
+            role="button"
+            @click.prevent="speakRow()"
+            @keypress.prevent="speakRow()"
+          >
             Speak
           </a>
         </li>
-        <li
-          v-if="
-            !cardIds[selectedRow.chinese] ||
-            !cardIds[selectedRow.chinese].length
-          "
-        >
+        <li v-if="selected.row && !selected.quizIds.length">
           <a
             role="button"
-            @click.prevent="addToQuiz"
-            @keypress.prevent="addToQuiz"
+            @click.prevent="addToQuiz()"
+            @keypress.prevent="addToQuiz()"
           >
             Add to quiz
           </a>
         </li>
-        <li v-else>
+        <li v-if="selected.row && selected.quizIds.length">
           <a
             role="button"
-            @click.prevent="removeFromQuiz"
-            @keypress.prevent="removeFromQuiz"
+            @click.prevent="removeFromQuiz()"
+            @keypress.prevent="removeFromQuiz()"
           >
             Remove from quiz
           </a>
         </li>
-        <li>
+        <li v-if="selected.row">
           <nuxt-link
-            :to="{ path: '/vocab', query: { q: selectedRow.chinese } }"
+            :to="{ path: '/vocab', query: { q: selected.row.entry } }"
             target="_blank"
           >
             Search for vocab
           </nuxt-link>
         </li>
-        <li>
+        <li v-if="selected.row">
           <nuxt-link
-            :to="{ path: '/hanzi', query: { q: selectedRow.chinese } }"
+            :to="{ path: '/hanzi', query: { q: selected.row.entry } }"
             target="_blank"
           >
             Search for Hanzi
           </nuxt-link>
         </li>
-        <li>
+        <li v-if="selected.row">
           <a
-            :href="`https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb=*${selectedRow.chinese}*`"
+            :href="`https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb=*${selected.row.entry}*`"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -106,8 +105,8 @@
         <li>
           <a
             role="button"
-            @click.prevent="doDelete"
-            @keypress.prevent="doDelete"
+            @click.prevent="doDelete()"
+            @keypress.prevent="doDelete()"
           >
             Delete
           </a>
@@ -118,21 +117,36 @@
 </template>
 
 <script lang="ts">
-import { Component, Vue, Watch } from 'nuxt-property-decorator'
+import { Component, Vue } from 'nuxt-property-decorator'
 
 import { speak } from '~/assets/speak'
 
-@Component({
+interface IExtra {
+  _id?: string
+  entry: string
+  reading: string
+  english: string
+}
+
+@Component<ExtraPage>({
   layout: 'app',
+  created() {
+    this.load()
+  },
+  watch: {
+    page() {
+      this.load()
+    },
+  },
 })
 export default class ExtraPage extends Vue {
-  data: any = []
   count = 0
   perPage = 10
   page = 1
-  dataHeader = [
-    { field: 'chinese', label: 'Chinese', sortable: true },
-    { field: 'pinyin', label: 'Pinyin', sortable: true },
+  tableData: IExtra[] = []
+  tableHeader = [
+    { field: 'entry', label: 'Entry', sortable: true },
+    { field: 'reading', label: 'Reading', sortable: true },
     { field: 'english', label: 'English', sortable: true },
   ]
 
@@ -141,119 +155,107 @@ export default class ExtraPage extends Vue {
     type: 'desc',
   }
 
-  newItem: any = {}
-  selectedRow: any = {}
-  cardIds: any = {}
-
-  speak = speak
-
-  created() {
-    this.load()
+  newItem: IExtra = {
+    entry: '',
+    reading: '',
+    english: '',
   }
 
-  @Watch('$store.state.user')
-  async onUserChange() {
-    if (this.$store.state.user) {
-      await this.load()
-    } else {
-      this.$set(this, 'data', [])
+  selected: {
+    row?: IExtra
+    quizIds: string[]
+  } = {
+    quizIds: [],
+  }
+
+  async speakRow() {
+    if (this.selected.row) {
+      await speak(this.selected.row.entry)
     }
   }
 
-  @Watch('page')
   async load() {
-    const { result, count } = await this.$axios.$post('/api/extra/q', {
-      offset: (this.page - 1) * this.perPage,
-      limit: this.perPage,
-      sort: {
-        [this.sort.key]: this.sort.type === 'desc' ? -1 : 1,
+    const { result, count } = await this.$axios.$get('/api/extra/q', {
+      params: {
+        page: this.page,
+        perPage: this.perPage,
+        sort: [`${this.sort.type === 'desc' ? '-' : ''}${this.sort.key}`],
+        select: ['_id', 'entry', 'reading', 'english'],
       },
     })
 
-    this.$set(this, 'data', result)
+    this.tableData = result
+    this.$set(this, 'tableData', this.tableData)
     this.count = count
   }
 
-  async addNewItem() {
-    const { type } = await this.$axios.$put('/api/extra/', this.newItem)
-
-    if (type === 'extra') {
-      this.$set(this, 'newItem', {})
-      await this.addToQuiz(this.newItem)
+  async doDelete() {
+    if (this.selected.row && this.selected.row._id) {
+      await this.$axios.$delete('/api/extra', {
+        params: {
+          id: this.selected.row._id,
+        },
+      })
       await this.load()
-    } else {
-      // this.$set(this, 'newItem', {})
-      await this.addToQuiz(this.newItem, type)
     }
   }
 
-  async doDelete() {
-    await this.$axios.$delete('/api/extra/', {
-      data: {
-        ids: [this.selectedRow._id],
-      },
-    })
-    await this.load()
-  }
-
-  onTableContextmenu(row: any, evt: MouseEvent) {
+  async onTableContextmenu(row: any, evt: MouseEvent) {
     evt.preventDefault()
 
-    this.selectedRow = row
+    this.selected.row = row
+    const { result } = await this.$axios.$get('/api/quiz/entry', {
+      params: {
+        entry: row.entry,
+        select: ['_id'],
+        type: 'extra',
+      },
+    })
+
+    this.selected.quizIds = result.map((q: any) => q._id)
+    this.$set(this.selected, 'quizIds', this.selected.quizIds)
+
     const contextmenu = this.$refs.contextmenu as any
     contextmenu.open(evt)
   }
 
-  @Watch('selectedRow')
-  async loadVocabStatus() {
-    if (this.selectedRow.chinese) {
-      const { result } = await this.$axios.$post('/api/card/q', {
-        cond: {
-          item: this.selectedRow.chinese,
-          type: 'extra',
-        },
-        projection: {
-          _id: 1,
-        },
-        hasCount: false,
-      })
+  async addToQuiz(newItem = this.selected.row) {
+    if (newItem) {
+      const { existingType, _id } = await this.$axios.$put(
+        '/api/extra',
+        this.selected.row
+      )
 
-      this.$set(
-        this.cardIds,
-        this.selectedRow.chinese,
-        result.map((r: any) => r._id)
+      if (existingType || _id) {
+        this.$buefy.snackbar.open(
+          `Added ${existingType || 'extra'}: ${newItem.entry} to quiz`
+        )
+      }
+
+      if (_id) {
+        this.$set(this, 'newItem', {})
+        await this.load()
+      }
+    }
+  }
+
+  async removeFromQuiz() {
+    if (this.selected.row) {
+      if (this.selected.quizIds.length) {
+        await this.$axios.$post('/api/quiz/delete/ids', {
+          ids: this.selected.quizIds,
+        })
+      }
+      this.$buefy.snackbar.open(
+        `Removed extra: ${this.selected.row.entry} from quiz`
       )
     }
   }
 
-  async addToQuiz(item = this.selectedRow.chinese, type = 'extra') {
-    await this.$axios.$put('/api/card/', { item, type })
-    this.$buefy.snackbar.open(`Added ${type}: ${item} to quiz`)
-
-    this.loadVocabStatus()
-  }
-
-  async removeFromQuiz() {
-    const type = 'extra'
-    const item = this.selectedRow.chinese
-
-    const ids = this.cardIds[item] || []
-    await Promise.all(
-      ids.map((id: string) =>
-        this.$axios.$delete('/api/card/', {
-          data: { id },
-        })
-      )
-    )
-    this.$buefy.snackbar.open(`Removed ${type}: ${item} from quiz`)
-
-    this.loadVocabStatus()
-  }
-
-  onSort(key: string, type: string) {
+  async onSort(key: string, type: string) {
     this.sort.key = key
     this.sort.type = type
-    this.load()
+    await this.load()
   }
 }
 </script>

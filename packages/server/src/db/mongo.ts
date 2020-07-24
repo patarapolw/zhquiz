@@ -182,13 +182,11 @@ class DbExtra {
         }
       : { userId }
 
-    const rs = await DbExtraModel.find(cond).select({
-      entry: 1,
-    })
+    const rs = await DbExtraModel.find(cond).select('-_id entry')
 
     if (rs.length > 0) {
       await DbQuizModel.deleteMany({
-        entry: { $in: rs.map((el) => el.entry!) },
+        entry: { $in: rs.map((el) => el.entry) },
         type: 'extra',
         userId,
       })

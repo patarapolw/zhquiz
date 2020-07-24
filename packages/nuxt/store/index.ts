@@ -26,7 +26,9 @@ export const actions: ActionTree<RootState, RootState> = {
   async updateUser({ commit }, user: User | null) {
     if (user) {
       this.$axios.defaults.headers.authorization = `Bearer ${await user.getIdToken()}`
-      const { level = 60 } = await this.$axios.$get('/api/user/')
+      const { level = 1 } = await this.$axios.$get(
+        '/api/dictionary/currentLevel?type=vocab'
+      )
       commit('updateLevel', level)
     } else {
       delete this.$axios.defaults.headers.authorization
