@@ -19,6 +19,7 @@
     "@patarapolw/make-html-frontend-functions": "^1.0.0-pre15",
     "@types/codemirror": "^0.0.96",
     "@types/dompurify": "^2.0.2",
+    "@types/lokijs": "^1.5.3",
     "@types/spark-md5": "^3.0.2",
     "@types/xregexp": "^4.3.0",
     "codemirror": "^5.55.0",
@@ -26,8 +27,11 @@
     "dompurify": "^2.0.12",
     "encodeuri-plus": "^0.3.8",
     "firebase": "^7.15.5",
+    "jsonschema-definer": "^1.2.2",
+    "lokijs": "^1.5.9",
     "nuxt": "^2.13.0",
     "nuxt-buefy": "^0.3.31",
+    "nuxt-typed-vuex": "^0.1.19",
     "rison-node": "^2.1.1",
     "spark-md5": "^3.0.1",
     "vue-codemirror": "^4.0.6",
@@ -51,8 +55,7 @@
     "eslint-plugin-simple-import-sort": "^5.0.3",
     "eslint-plugin-vue-a11y": "^0.0.31",
     "nuxt-property-decorator": "^2.7.2",
-    "prettier": "^2.0.5",
-    "yaml-loader": "^0.6.0"
+    "prettier": "^2.0.5"
   },
   "resolutions": {
     "core-js": "2"

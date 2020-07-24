@@ -214,7 +214,7 @@ export default class ExtraPage extends Vue {
       const { type, entry } = existing
       await this.$axios.$put('/api/quiz', {
         entry,
-        dictionaryType: type,
+        type,
       })
 
       this.$buefy.snackbar.open(`Added ${type}: ${entry} to quiz`)
@@ -255,7 +255,7 @@ export default class ExtraPage extends Vue {
     if (this.selected.row) {
       await this.$axios.$put('/api/quiz', {
         entry: this.selected.row.entry,
-        dictionaryType: 'extra',
+        type: 'extra',
       })
 
       this.$buefy.snackbar.open(

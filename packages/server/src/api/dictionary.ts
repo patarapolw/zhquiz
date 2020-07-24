@@ -4,99 +4,90 @@ import S from 'jsonschema-definer'
 import { zhDictionary } from '@/db/local'
 import { DbQuizModel } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
-import { sDictionaryType, sLevel } from '@/util/schema'
+import { sDictionaryType, sLevel, sStringNonEmpty } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['dictionary']
 
-  getMatch()
-  getAlt()
+  postSearch()
   getRandom()
   getAllLevels()
   getCurrentLevel()
 
   next()
 
-  function getMatch() {
-    const sQuery = S.shape({
-      entry: S.string(),
+  function postSearch() {
+    const sBody = S.shape({
+      strategy: S.string().enum('match', 'alt', 'contains'),
+      q: sStringNonEmpty.optional(),
       type: sDictionaryType,
+      select: S.list(
+        S.string().enum('entry', 'alt', 'reading', 'english', 'frequency')
+      ),
+      limit: S.integer().minimum(-1).optional(),
+      exclude: S.list(S.string()),
     })
 
     const sResponse = S.shape({
-      entry: S.string(),
-      alt: S.list(S.string()).minItems(1).uniqueItems().optional(),
-      reading: S.list(S.string()).minItems(1).uniqueItems(),
-      english: S.list(S.string()).minItems(1).uniqueItems(),
+      result: S.list(
+        S.shape({
+          entry: S.string().optional(),
+          alt: S.list(S.string()).minItems(1).uniqueItems().optional(),
+          reading: S.list(S.string()).minItems(1).uniqueItems().optional(),
+          english: S.list(S.string()).minItems(1).uniqueItems().optional(),
+          frequency: S.number().optional(),
+        })
+      ),
     })
 
-    f.get<typeof sQuery.type>(
-      '/',
+    f.post<any, any, any, typeof sBody.type>(
+      '/q',
       {
         schema: {
           tags,
-          summary: 'Get dictionary data for a given entry',
-          querystring: sQuery.valueOf(),
+          summary: 'Search the dictionary',
+          body: sBody.valueOf(),
           response: {
             200: sResponse.valueOf(),
           },
         },
       },
-      async (req, reply): Promise<typeof sResponse.type> => {
-        const { entry, type } = req.query
-        const r = zhDictionary.findOne({ entry, type })
-        if (!r) {
-          reply.status(404).send({
-            error: 'No match found',
-          })
-          return undefined as any
+      async (req): Promise<typeof sResponse.type> => {
+        const { strategy, q, type, select, limit, exclude } = req.body
+        const qs = (q || '').split(' ')
+
+        const rs = zhDictionary.find({
+          $and: [
+            { entry: { $nin: exclude } },
+            { type },
+            ...(q && strategy === 'contains'
+              ? [
+                  {
+                    $or: [
+                      { entry: { $containsString: q } },
+                      { alt: { $containsString: q } },
+                    ],
+                  },
+                ]
+              : []),
+            ...(qs.length
+              ? strategy === 'match'
+                ? [{ entry: { $in: qs } }]
+                : strategy === 'alt'
+                ? [{ $or: [{ entry: { $in: qs } }, { alt: { $in: qs } }] }]
+                : []
+              : []),
+          ],
+        })
+
+        return {
+          result: rs
+            .slice(0, limit === -1 ? undefined : limit || 10)
+            .sort(({ frequency: f1 = 0 }, { frequency: f2 = 0 }) => f2 - f1)
+            .map((r) =>
+              select.reduce((prev, k) => ({ ...prev, [k]: r[k] }), {} as any)
+            ),
         }
-
-        const { alt, reading, english } = r
-        return { entry, alt, reading, english }
-      }
-    )
-  }
-
-  function getAlt() {
-    const sQuery = S.shape({
-      q: S.string(),
-      type: S.string().enum('vocab'),
-    })
-
-    const sResponse = S.shape({
-      entry: S.string(),
-      alt: S.list(S.string()).minItems(1).uniqueItems().optional(),
-      reading: S.list(S.string()).minItems(1).uniqueItems(),
-      english: S.list(S.string()).minItems(1).uniqueItems(),
-    })
-
-    f.get<typeof sQuery.type>(
-      '/alt',
-      {
-        schema: {
-          tags,
-          summary: 'Get dictionary data for a given entry, also alt',
-          querystring: sQuery.valueOf(),
-          response: {
-            200: sResponse.valueOf(),
-          },
-        },
-      },
-      async (req, reply): Promise<typeof sResponse.type> => {
-        const { q, type } = req.query
-        const r =
-          zhDictionary.findOne({ entry: q, type }) ||
-          zhDictionary.findOne({ alt: { $contains: q }, type })
-        if (!r) {
-          reply.status(404).send({
-            error: 'No match found',
-          })
-          return undefined as any
-        }
-
-        const { entry, alt, reading, english } = r
-        return { entry, alt, reading, english }
       }
     )
   }
@@ -112,7 +103,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       result: S.list(
         S.shape({
           entry: S.string(),
-          english: S.string(),
+          english: S.list(S.string()),
           level: sLevel,
         })
       ),
@@ -163,7 +154,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           .filter((el) => el)
           .map((el) => ({
             entry: el!.entry,
-            english: el!.english[0],
+            english: el!.english,
             level: el!.level!,
           }))
 
@@ -218,22 +209,45 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             return prev
           }, new Map<string, number>())
 
-        const result = (
-          await DbQuizModel.find({
-            userId,
-            type,
-            entry: {
-              $in: Array.from(lvMap.keys()),
-            },
-          }).select('-_id entry srsLevel')
-        ).map(({ entry, srsLevel }) => ({
-          entry,
-          level: lvMap.get(entry)!,
-          srsLevel: srsLevel || -1,
-        }))
+        const rMap = new Map<
+          string,
+          {
+            level: number
+            srs: number[]
+          }
+        >()
+
+        const rs = await DbQuizModel.find({
+          userId,
+          type,
+          entry: {
+            $in: Array.from(lvMap.keys()),
+          },
+        }).select('-_id entry srsLevel')
+
+        rs.filter(({ entry }) => lvMap.get(entry)).map(
+          ({ entry, srsLevel }) => {
+            const r = rMap.get(entry) || {
+              level: lvMap.get(entry)!,
+              srs: [],
+            }
+
+            if (typeof srsLevel === 'number') {
+              r.srs.push(srsLevel)
+            }
+
+            rMap.set(entry, r)
+          }
+        )
 
         return {
-          result,
+          result: Array.from(rMap)
+            .map(([entry, { level, srs }]) => ({
+              entry,
+              level,
+              srsLevel: Math.max(-1, ...srs),
+            }))
+            .sort((a, b) => b.level - a.level),
         }
       }
     )
@@ -277,27 +291,36 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             return prev
           }, new Map<string, number>())
 
-        const itemCount = (
+        const existing = (
           await DbQuizModel.find({
             userId,
-            type,
+            'dictionary.type': 'vocab',
             entry: {
               $in: Array.from(lvMap.keys()),
             },
           }).select('-_id entry')
         ).reduce((prev, { entry }) => {
-          const lv = lvMap.get(entry)!
-          const ls = prev.get(lv) || []
-          ls.push(entry)
-          prev.set(lv, ls)
+          if (!prev.has(entry)) {
+            prev.set(entry, lvMap.get(entry)!)
+          }
 
           return prev
-        }, new Map<number, string[]>())
+        }, new Map<string, number>())
+        const itemCount = Array.from(existing).reduce(
+          (prev, [entry, level]) => {
+            const s = prev.get(level) || new Set()
+            s.add(entry)
+            prev.set(level, s)
+
+            return prev
+          },
+          new Map<number, Set<string>>()
+        )
 
         const level = Math.min(
           1,
           ...Array.from(itemCount)
-            .filter(([, its]) => its.length >= 10)
+            .filter(([, its]) => its.size >= 10)
             .map(([lv]) => lv)
         )
 

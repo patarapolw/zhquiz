@@ -1,50 +1,79 @@
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
+import XRegExp from 'xregexp'
 
 import { zhToken } from '@/db/local'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   const tags = ['token']
 
-  getMatch()
+  getQ()
 
   next()
 
-  function getMatch() {
+  function getQ() {
     const sQuery = S.shape({
-      entry: S.string(),
+      q: S.string(),
+      exclude: S.string().optional(),
     })
 
     const sResponse = S.shape({
-      sub: S.string().optional(),
-      sup: S.string().optional(),
-      variants: S.string().optional(),
+      result: S.list(
+        S.shape({
+          entry: S.string(),
+          sub: S.list(S.string()).optional(),
+          sup: S.list(S.string()).optional(),
+          variants: S.list(S.string()).optional(),
+        })
+      ),
     })
 
     f.get<typeof sQuery.type>(
-      '/',
+      '/q',
       {
         schema: {
           tags,
-          summary: 'Get data for a given Hanzi',
+          summary: 'Get data for a list of Hanzi',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
           },
         },
       },
-      async (req, reply): Promise<typeof sResponse.type> => {
-        const { entry } = req.body
-        const r = zhToken.findOne({ entry })
-        if (!r) {
-          reply.status(404).send({
-            error: 'No match found',
-          })
-          return undefined as any
-        }
+      async (req): Promise<typeof sResponse.type> => {
+        const { q, exclude } = req.query
+        const qs = (q.match(XRegExp('\\p{Han}')) || []).filter(
+          (h, i, arr) => arr.indexOf(h) === i
+        )
+        const xs = exclude
+          ? (exclude.match(XRegExp('\\p{Han}')) || []).filter(
+              (h, i, arr) => arr.indexOf(h) === i
+            )
+          : null
 
-        const { sub, sup, variants } = r
-        return { sub, sup, variants }
+        const rs = zhToken
+          .find(
+            xs
+              ? { $and: [{ entry: { $in: qs } }, { entry: { $nin: xs } }] }
+              : { entry: { $in: qs } }
+          )
+          .reduce(
+            (prev, { entry, sub, sup, variants }) => ({
+              ...prev,
+              [entry]: { sub, sup, variants },
+            }),
+            {} as any
+          )
+
+        return {
+          result: qs
+            .map((entry) => ({
+              entry,
+              data: rs[entry],
+            }))
+            .filter(({ data }) => data)
+            .map(({ entry, data }) => ({ entry, ...data })),
+        }
       }
     )
   }

@@ -12,6 +12,7 @@ export const sStringNonEmpty = S.string().pattern(/[^\s]/)
  * Project specific
  */
 export const sDictionaryType = S.string().enum('hanzi', 'vocab', 'sentence')
+export const sQuizType = S.anyOf(sDictionaryType, S.string().enum('extra'))
 export const sSort = (ks: string[]) =>
   S.string().enum(...ks.flatMap((k) => [k, `-${k}`]))
 export const sSrsLevel = S.integer()

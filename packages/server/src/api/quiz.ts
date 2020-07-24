@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
 import { checkAuthorize } from '@/util/api'
-import { sDateTime, sSrsLevel } from '@/util/schema'
+import { sDateTime, sDictionaryType, sQuizType, sSrsLevel } from '@/util/schema'
 
 import { DbQuizModel, DbUserModel, sDbQuiz, sQuizStat } from '../db/mongo'
 
@@ -103,7 +103,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sQuery = S.shape({
       entry: S.string(),
       select: S.list(S.string()).minItems(1),
-      type: S.string(),
+      type: S.anyOf(sDictionaryType, S.string().enum('extra')),
     })
 
     const sResponse = S.shape({
@@ -147,7 +147,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const sBody = S.shape({
       entries: S.list(S.string()).minItems(1),
       select: S.list(sDbQuiz),
-      type: S.string(),
+      type: sQuizType,
     })
 
     const sResponse = S.shape({
@@ -281,11 +281,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   }
 
   function getInit() {
-    const myType = S.string().enum('hanzi', 'vocab', 'sentence', 'extra')
     const myStage = S.string().enum('new', 'leech', 'learning', 'graduated')
 
     const sQuery = S.shape({
-      type: S.list(myType),
+      type: S.list(sQuizType),
       stage: S.list(myStage),
       direction: S.list(S.string()),
       isDue: S.boolean().optional(),
@@ -406,7 +405,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function doCreateByEntry() {
     const sBody = S.shape({
       entry: S.anyOf(S.string(), S.list(S.string())),
-      dictionaryType: S.string().enum('hanzi', 'vocab', 'sentence', 'extra'),
+      type: sQuizType,
+      direction: S.list(S.string()).minItems(1).optional(),
     })
 
     f.put<any, any, any, typeof sBody.type>(
@@ -424,21 +424,22 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           return
         }
 
-        const { entry, dictionaryType: dictType } = req.body
+        const { entry, type, direction: _dirs } = req.body
         const entries = Array.isArray(entry) ? entry : [entry]
 
         try {
           await DbQuizModel.insertMany(
             entries.flatMap((entry) => {
-              let types = [`${dictType}-ce`, `${dictType}-ec`]
-              if (dictType === 'vocab') {
-                types = ['vocab-se', 'vocab-te', 'vocab-ec']
+              let dirs = _dirs || ['ce', 'ec']
+              if (type === 'vocab' && !_dirs) {
+                dirs = ['se', 'te', 'ec']
               }
 
-              return types.map((type) => ({
+              return dirs.map((direction) => ({
                 userId,
                 entry,
                 type,
+                direction,
               }))
             }),
             { ordered: false }
@@ -458,7 +459,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           })
 
           const failedEntries = Array.from(writeCount)
-            .filter(([, count]) => count >= (dictType === 'vocab' ? 3 : 2))
+            .filter(([, count]) => count >= (type === 'vocab' ? 3 : 2))
             .map(([k]) => k)
 
           if (failedEntries.length) {

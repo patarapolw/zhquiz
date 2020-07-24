@@ -1,5 +1,7 @@
 import { User } from 'firebase/app'
-import { ActionTree, MutationTree } from 'vuex'
+import { actionTree, getAccessorType, mutationTree } from 'typed-vuex'
+
+import * as dictionary from '~/store/dictionary'
 
 export const state = () => ({
   user: null as User | null,
@@ -12,29 +14,41 @@ export const state = () => ({
 
 export type RootState = ReturnType<typeof state>
 
-export const mutations: MutationTree<RootState> = {
-  updateUser(state, user) {
+export const mutations = mutationTree(state, {
+  SET_USER(state, user: User | null) {
     state.user = JSON.parse(JSON.stringify(user))
     state.isAuthReady = true
   },
-  updateLevel(state, level) {
+  SET_LEVEL(state, level: number | null) {
     state.level = level
   },
-}
+})
 
-export const actions: ActionTree<RootState, RootState> = {
-  async updateUser({ commit }, user: User | null) {
-    if (user) {
-      this.$axios.defaults.headers.authorization = `Bearer ${await user.getIdToken()}`
-      const { level = 1 } = await this.$axios.$get(
-        '/api/dictionary/currentLevel?type=vocab'
-      )
-      commit('updateLevel', level)
-    } else {
-      delete this.$axios.defaults.headers.authorization
-      commit('updateLevel', null)
-    }
+export const actions = actionTree(
+  { state, mutations },
+  {
+    async updateUser({ commit }, user: User | null) {
+      if (user) {
+        this.$axios.defaults.headers.authorization = `Bearer ${await user.getIdToken()}`
+        const { level = 1 } = await this.$axios.$get(
+          '/api/dictionary/currentLevel?type=vocab'
+        )
+        commit('SET_LEVEL', level)
+      } else {
+        delete this.$axios.defaults.headers.authorization
+        commit('SET_LEVEL', null)
+      }
 
-    commit('updateUser', user)
+      commit('SET_USER', user)
+    },
+  }
+)
+
+export const accessorType = getAccessorType({
+  state,
+  mutations,
+  actions,
+  modules: {
+    dictionary,
   },
-}
+})
