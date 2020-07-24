@@ -12,6 +12,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   getMatch()
   getAlt()
   getRandom()
+  getAllLevels()
+  getCurrentLevel()
 
   next()
 
@@ -167,6 +169,140 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
         return {
           result,
+        }
+      }
+    )
+  }
+
+  function getAllLevels() {
+    const sQuery = S.shape({
+      type: sDictionaryType,
+    })
+
+    const sResponse = S.shape({
+      result: S.list(
+        S.shape({
+          entry: S.string(),
+          level: S.integer().minimum(1).maximum(60),
+          srsLevel: S.integer(),
+        })
+      ),
+    })
+
+    f.get<typeof sQuery.type>(
+      '/allLevels',
+      {
+        schema: {
+          tags,
+          summary: 'Get srs levels for every items',
+          querystring: sQuery.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply): Promise<typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return undefined as any
+        }
+
+        const { type } = req.query
+        const lvMap = zhDictionary
+          // @ts-ignore
+          .find({ type, level: { $exists: true } })
+          .reduce((prev, { entry, level }) => {
+            if (level) {
+              lvMap.set(entry, level)
+            }
+            return prev
+          }, new Map<string, number>())
+
+        const result = (
+          await DbQuizModel.find({
+            userId,
+            type,
+            entry: {
+              $in: Array.from(lvMap.keys()),
+            },
+          }).select('-_id entry srsLevel')
+        ).map(({ entry, srsLevel }) => ({
+          entry,
+          level: lvMap.get(entry)!,
+          srsLevel: srsLevel || -1,
+        }))
+
+        return {
+          result,
+        }
+      }
+    )
+  }
+
+  function getCurrentLevel() {
+    const sQuery = S.shape({
+      type: sDictionaryType,
+    })
+
+    const sResponse = S.shape({
+      level: S.integer(),
+    })
+
+    f.get<typeof sQuery.type>(
+      '/currentLevel',
+      {
+        schema: {
+          tags,
+          summary: 'Get current level',
+          querystring: sQuery.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply): Promise<typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return undefined as any
+        }
+
+        const { type } = req.query
+        const lvMap = zhDictionary
+          // @ts-ignore
+          .find({ type, level: { $exists: true } })
+          .reduce((prev, { entry, level }) => {
+            if (level) {
+              lvMap.set(entry, level)
+            }
+            return prev
+          }, new Map<string, number>())
+
+        const itemCount = (
+          await DbQuizModel.find({
+            userId,
+            type,
+            entry: {
+              $in: Array.from(lvMap.keys()),
+            },
+          }).select('-_id entry')
+        ).reduce((prev, { entry }) => {
+          const lv = lvMap.get(entry)!
+          const ls = prev.get(lv) || []
+          ls.push(entry)
+          prev.set(lv, ls)
+
+          return prev
+        }, new Map<number, string[]>())
+
+        const level = Math.min(
+          1,
+          ...Array.from(itemCount)
+            .filter(([, its]) => its.length >= 10)
+            .map(([lv]) => lv)
+        )
+
+        return {
+          level,
         }
       }
     )

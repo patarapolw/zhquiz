@@ -19,12 +19,13 @@ export const sDictionary = S.shape({
 export let zhDictionary: Collection<typeof sDictionary.type>
 
 const reHan1 = XRegExp('^\\p{Han}$')
+export const sHan1 = S.string().custom((s) => reHan1.test(s))
 
 export const sToken = S.shape({
-  entry: S.string().custom((s) => reHan1.test(s)),
-  sub: S.string().optional(),
-  sup: S.string().optional(),
-  variants: S.string().optional(),
+  entry: sHan1,
+  sub: S.list(sHan1).minItems(1).optional(),
+  sup: S.list(sHan1).minItems(1).optional(),
+  variants: S.list(sHan1).minItems(1).optional(),
 })
 
 export let zhToken: Collection<typeof sToken.type>

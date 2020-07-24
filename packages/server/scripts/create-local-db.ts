@@ -73,10 +73,10 @@ async function main() {
         level,
       }: {
         chinese: string
-        pinyin?: string
+        pinyin: string | null
         english: string
-        frequency?: number
-        level?: number
+        frequency: number | null
+        level: number | null
       }) => {
         chinese = cleanOl(chinese)
         if (sMap.has(chinese)) {
@@ -150,31 +150,53 @@ async function main() {
   `
   )
     .all()
-    .map(({ entry, sub, sup, variants, frequency, pinyin, english }) => {
-      if (reHan1.test(entry)) {
-        zhToken.insertOne(
-          ensureSchema(sToken, {
-            entry,
-            sub: sub || undefined,
-            sup: sup || undefined,
-            variants: variants || undefined,
-          })
-        )
+    .map(
+      ({
+        entry,
+        sub: _sub,
+        sup: _sup,
+        variants: _v,
+        frequency,
+        pinyin,
+        english,
+      }: {
+        entry: string
+        sub: string | null
+        sup: string | null
+        variants: string | null
+        frequency: number | null
+        pinyin: string | null
+        english: string | null
+      }) => {
+        if (reHan1.test(entry)) {
+          const sub = Array.from((_sub || '').match(reHan) || [])
+          const sup = Array.from((_sup || '').match(reHan) || [])
+          const variants = Array.from((_v || '').match(reHan) || [])
 
-        if (english) {
-          zhDictionary.insertOne(
-            ensureSchema(sDictionary, {
-              type: 'hanzi',
+          zhToken.insertOne(
+            ensureSchema(sToken, {
               entry,
-              frequency: frequency || undefined,
-              level: hLevelMap.get(entry),
-              reading: [pinyin || makePinyin(entry, { keepRest: true })],
-              english: [addSpaceToSlash(english)],
+              sub: sub.length ? sub : undefined,
+              sup: sup.length ? sup : undefined,
+              variants: variants.length ? variants : undefined,
             })
           )
+
+          if (english) {
+            zhDictionary.insertOne(
+              ensureSchema(sDictionary, {
+                type: 'hanzi',
+                entry,
+                frequency: frequency || undefined,
+                level: hLevelMap.get(entry),
+                reading: [pinyin || makePinyin(entry, { keepRest: true })],
+                english: [addSpaceToSlash(english)],
+              })
+            )
+          }
         }
       }
-    })
+    )
 
   const vMap = new Map<string, any[]>()
   db.prepare(
