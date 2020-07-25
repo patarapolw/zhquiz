@@ -1,4 +1,3 @@
-/* eslint-disable import/no-duplicates */
 import path from 'path'
 
 import fastify from 'fastify'

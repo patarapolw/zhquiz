@@ -1,4 +1,3 @@
-/* eslint-disable import/no-duplicates */
 import { FastifyReply, FastifyRequest } from 'fastify'
 
 export function checkAuthorize(

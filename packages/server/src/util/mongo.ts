@@ -1,4 +1,3 @@
-/* eslint-disable import/no-duplicates */
 import mongoose from 'mongoose'
 
 export async function mongoInit() {

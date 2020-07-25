@@ -1,4 +1,3 @@
-/* eslint-disable import/no-duplicates */
 import S, { BaseSchema } from 'jsonschema-definer'
 
 import { srsMap } from '@/db/quiz'

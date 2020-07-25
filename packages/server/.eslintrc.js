@@ -11,6 +11,7 @@ module.exports = {
   },
   plugins: ['@typescript-eslint', 'prettier', 'simple-import-sort'],
   rules: {
+    'import/no-duplicates': 0,
     'import/named': 0,
     'no-unused-vars': 0,
     'require-await': 0,
