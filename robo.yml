@@ -1,15 +1,15 @@
 dev:
   command: |
     npx concurrently \
-      'cd packages/server && yarn dev'\
+      'cd packages/server && pnpm dev'\
       'cd packages/nuxt && yarn dev'
 build:
   command: |
     docker build . --build-arg FIREBASE_CONFIG -t {{.docker.tag}}
 build-local:
   command: |
+    cd packages/server && pnpm build && cd -
     cd packages/nuxt && yarn build && cd -
-    cd packages/server && yarn build && cd -
     docker build -f Dockerfile.local -t {{.docker.tag}} .
 start:
   command: |

@@ -5,8 +5,6 @@ import XRegExp from 'xregexp'
 import { zhToken } from '@/db/local'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const tags = ['token']
-
   getQ()
 
   next()
@@ -28,12 +26,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       ),
     })
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/q',
       {
         schema: {
-          tags,
-          summary: 'Get data for a list of Hanzi',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),

@@ -1,8 +1,13 @@
-FROM node:12-alpine AS server
+FROM node:12-alpine as pnpm
+# ENV PNPM_VERSION 5.4
+RUN apk --no-cache add curl
+RUN curl -sL https://unpkg.com/@pnpm/self-installer | node
+
+FROM pnpm AS server
 WORKDIR /app
 RUN apk add python alpine-sdk
-COPY packages/server/package.json packages/server/yarn.lock ./
-RUN LDFLAGS='-static-libgcc -static-libstdc++' yarn --production --frozen-lockfile --build-from-source=nodejieba
+COPY packages/server/package.json packages/server/pnpm*.* ./
+RUN LDFLAGS='-static-libgcc -static-libstdc++' pnpm i -P --no-optional --frozen-lockfile --build-from-source=nodejieba
 
 FROM astefanutti/scratch-node:12
 WORKDIR /app

@@ -153,10 +153,10 @@ export default class LevelPage extends Vue {
 
   selected: {
     entries: string[]
-    cardIds: string[]
+    quizIds: string[]
   } = {
     entries: [],
-    cardIds: [],
+    quizIds: [],
   }
 
   tagClassMap = [
@@ -260,7 +260,11 @@ export default class LevelPage extends Vue {
           type: 'vocab',
           select: ['entry', 'srsLevel'],
         })
-      : this.$axios.$get('/api/vocab/level'))
+      : this.$axios.$get('/api/dictionary/allLevels', {
+          params: {
+            type: 'vocab',
+          },
+        }))
 
     entries.map((entry) => {
       delete this.srsLevel[entry]
@@ -302,13 +306,11 @@ export default class LevelPage extends Vue {
       const { result = [] } = await this.$axios.$post('/api/quiz/entries', {
         entries,
         type: 'vocab',
-        select: ['cardId'],
+        select: ['_id'],
       })
 
-      this.selected.cardIds = result
-        .map((r: any) => r.cardId)
-        .filter((id) => id)
-      this.$set(this.selected, 'quizIds', this.selected.cardIds)
+      this.selected.quizIds = result.map((r: any) => r._id)
+      this.$set(this.selected, 'quizIds', this.selected.quizIds)
     }
   }
 
@@ -316,8 +318,8 @@ export default class LevelPage extends Vue {
     const { entries } = this.selected
 
     if (entries.length) {
-      await this.$axios.$put('/api/card', {
-        entries,
+      await this.$axios.$put('/api/quiz', {
+        entry: entries,
         type: 'vocab',
       })
       this.$buefy.snackbar.open(
@@ -330,10 +332,10 @@ export default class LevelPage extends Vue {
   }
 
   async removeFromQuiz() {
-    const { entries, cardIds } = this.selected
+    const { entries, quizIds } = this.selected
 
-    if (entries.length && cardIds.length) {
-      await this.$axios.$delete('/api/card', { data: { id: cardIds } })
+    if (entries.length && quizIds.length) {
+      await this.$axios.$post('/api/quiz/delete/ids', { ids: quizIds })
       this.$buefy.snackbar.open(
         `Removed vocab: ${entries.slice(0, 3).join(',')}${
           entries.length > 3 ? '...' : ''

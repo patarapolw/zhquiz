@@ -2,3 +2,4 @@ firebase-*
 /public/
 /dist/
 /.cache/
+/session-key

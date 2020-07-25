@@ -6,8 +6,6 @@ import jieba from 'nodejieba'
 import { sStringNonEmpty } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const tags = ['chinese']
-
   getJieba()
   getPinyin()
 
@@ -22,12 +20,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       result: S.list(S.string()),
     })
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/jieba',
       {
         schema: {
-          tags,
-          summary: 'Cut chinese text into segments',
           querystring: sQuery.valueOf(),
           response: {
             200: sResult.valueOf(),
@@ -53,12 +51,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       result: S.string(),
     })
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/pinyin',
       {
         schema: {
-          tags,
-          summary: 'Get pinyin from Chinese test',
           querystring: sQuery.valueOf(),
           response: {
             200: sResult.valueOf(),

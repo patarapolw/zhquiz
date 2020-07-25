@@ -1,9 +1,8 @@
+import fs from 'fs'
+
 import { FastifyInstance } from 'fastify'
-import fCoookie from 'fastify-cookie'
-import swagger from 'fastify-oas'
-import fSession from 'fastify-session'
+import fSession from 'fastify-secure-session'
 import admin from 'firebase-admin'
-// @ts-ignore
 import rison from 'rison-node'
 
 import { DbUserModel } from '@/db/mongo'
@@ -21,29 +20,34 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     databaseURL: JSON.parse(process.env.FIREBASE_CONFIG!).databaseURL,
   })
 
-  f.register(swagger, {
-    routePrefix: '/doc',
-    swagger: {
-      consumes: ['application/json'],
-      produces: ['application/json'],
-      servers: [
-        {
-          url: 'http://localhost:8080',
-          description: 'Local server',
-        },
-      ],
-    },
-    exposeRoute: process.env.NODE_ENV === 'development',
-  })
-
   if (process.env.NODE_ENV === 'development') {
     f.register(require('fastify-cors'))
   }
 
-  f.register(fCoookie)
-  f.register(fSession, { secret: process.env.SECRET! })
+  f.register(fSession, { key: fs.readFileSync('session-key') })
 
-  f.addHook('preValidation', (req) => {
+  f.addHook('preHandler', async (req, reply) => {
+    const m = /^Bearer (.+)$/.exec(req.headers.authorization || '')
+
+    if (!m) {
+      reply.status(401).send()
+      return
+    }
+
+    const ticket = await admin.auth().verifyIdToken(m[1], true)
+    const user = req.session.get('user')
+
+    if (!user && ticket.email) {
+      req.session.set(
+        'user',
+        await DbUserModel.signIn(ticket.email, ticket.name)
+      )
+    }
+  })
+
+  f.addHook<{
+    Querystring: Record<string, string | string[]>
+  }>('preValidation', (req) => {
     if (req.query) {
       Object.entries(req.query).map(([k, v]) => {
         if (
@@ -64,37 +68,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           req.query[k] = rison.decode(v)
         }
       })
-    }
-  })
-
-  f.addHook('preHandler', async (req, reply) => {
-    if (req.req.url && req.req.url.startsWith('/api/doc')) {
-      return
-    }
-
-    if (
-      process.env.NODE_ENV === 'development' &&
-      process.env.DEFAULT_EMAIL &&
-      process.env.DEFAULT_NAME
-    ) {
-      req.session.user = await DbUserModel.signIn(
-        process.env.DEFAULT_EMAIL,
-        process.env.DEFAULT_NAME
-      )
-      return
-    }
-
-    const m = /^Bearer (.+)$/.exec(req.headers.authorization || '')
-
-    if (!m) {
-      reply.status(401).send()
-      return
-    }
-
-    const ticket = await admin.auth().verifyIdToken(m[1], true)
-
-    if (!req.session.user && ticket.email) {
-      req.session.user = await DbUserModel.signIn(ticket.email, ticket.name)
     }
   })
 

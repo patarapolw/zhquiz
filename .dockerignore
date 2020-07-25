@@ -1,15 +1,11 @@
 # Ignore everything
 **
 
-# Allow files and directories
-# !/submodules
-!/.qovery.yml
-
 !/packages/nuxt/dist
 !/packages/server/dist
 !/packages/server/assets/hsk.yaml
 !/packages/server/assets/zh.loki
 !/packages/server/package.json
-!/packages/server/yarn.lock
+!/packages/server/pnpm*.*
 
 **/node_modules

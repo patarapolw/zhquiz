@@ -1,14 +1,11 @@
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
+import { DbQuizModel, DbUserModel, sDbQuiz, sQuizStat } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
 import { sDateTime, sDictionaryType, sQuizType, sSrsLevel } from '@/util/schema'
 
-import { DbQuizModel, DbUserModel, sDbQuiz, sQuizStat } from '../db/mongo'
-
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const tags = ['quiz']
-
   getById()
   postGetByIds()
   getByEntry()
@@ -31,12 +28,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
     const sResponse = sDbQuiz
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/',
       {
         schema: {
-          tags,
-          summary: 'Get info for a quiz item',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -70,12 +67,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       result: S.list(sDbQuiz),
     })
 
-    f.post<any, any, any, typeof sBody.type>(
+    f.post<{
+      Body: typeof sBody.type
+    }>(
       '/ids',
       {
         schema: {
-          tags,
-          summary: 'Get info for a quiz item',
           body: sBody.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -110,12 +107,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       result: S.list(sDbQuiz),
     })
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/entry',
       {
         schema: {
-          tags,
-          summary: 'Get a quiz entry',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -154,12 +151,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       result: S.list(sDbQuiz),
     })
 
-    f.post<any, any, any, typeof sBody.type>(
+    f.post<{
+      Body: typeof sBody.type
+    }>(
       '/entries',
       {
         schema: {
-          tags,
-          summary: 'Get quiz entries via POST',
           body: sBody.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -193,12 +190,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       type: S.string().enum('right', 'wrong', 'repeat'),
     })
 
-    f.patch<typeof sQuery.type>(
+    f.patch<{
+      Querystring: typeof sQuery.type
+    }>(
       '/mark',
       {
         schema: {
-          tags,
-          summary: 'Mark card in a quiz session',
           querystring: sQuery.valueOf(),
         },
       },
@@ -241,8 +238,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       '/tag/all',
       {
         schema: {
-          tags,
-          summary: 'Get all tag names',
           response: {
             200: sResponse.valueOf(),
           },
@@ -303,12 +298,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       upcoming: S.list(sDateTime).optional(),
     })
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/init',
       {
         schema: {
-          tags,
-          summary: 'Get data necessary for initializing a quiz',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -409,12 +404,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       direction: S.list(S.string()).minItems(1).optional(),
     })
 
-    f.put<any, any, any, typeof sBody.type>(
+    f.put<{
+      Body: typeof sBody.type
+    }>(
       '/',
       {
         schema: {
-          tags,
-          summary: 'Create a quiz item',
           body: sBody.valueOf(),
         },
       },
@@ -491,12 +486,13 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       }),
     })
 
-    f.patch<typeof sQuery.type, any, any, typeof sBody.type>(
+    f.patch<{
+      Querystring: typeof sQuery.type
+      Body: typeof sBody.type
+    }>(
       '/',
       {
         schema: {
-          tags,
-          summary: 'Update a quiz item',
           querystring: sQuery.valueOf(),
           body: sBody.valueOf(),
         },
@@ -544,12 +540,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       id: S.string(),
     })
 
-    f.delete<typeof sQuery.type>(
+    f.delete<{
+      Querystring: typeof sQuery.type
+    }>(
       '/',
       {
         schema: {
-          tags,
-          summary: 'Delete a quiz item',
           querystring: sQuery.valueOf(),
         },
       },
@@ -575,12 +571,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       ids: S.list(S.string()).minItems(1),
     })
 
-    f.post<any, any, any, typeof sBody.type>(
+    f.post<{
+      Body: typeof sBody.type
+    }>(
       '/delete/ids',
       {
         schema: {
-          tags,
-          summary: 'Delete multiple quiz items',
           body: sBody.valueOf(),
         },
       },

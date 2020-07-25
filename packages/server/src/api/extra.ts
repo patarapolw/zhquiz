@@ -8,8 +8,6 @@ import { checkAuthorize } from '@/util/api'
 import { sDictionaryType, sSort, sStringNonEmpty } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const tags = ['extra']
-
   getQ()
   getMatch()
   doCreate()
@@ -33,12 +31,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       count: S.integer().optional(),
     })
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/q',
       {
         schema: {
-          tags,
-          summary: 'Query for user-created items',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -85,12 +83,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
     const sResponse = sDbExtra
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/',
       {
         schema: {
-          tags,
-          summary: 'Get data for a given user-created item',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -125,12 +123,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       _id: S.string().optional(),
     })
 
-    f.put<any, any, any, typeof sBody.type>(
+    f.put<{
+      Body: typeof sBody.type
+    }>(
       '/',
       {
         schema: {
-          tags,
-          summary: 'Create a user-created item',
           body: sBody.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -178,12 +176,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       set: sDbExtra,
     })
 
-    f.patch<any, any, any, typeof sBody.type>(
+    f.patch<{
+      Body: typeof sBody.type
+    }>(
       '/',
       {
         schema: {
-          tags,
-          summary: 'Update user-created items',
           body: {
             type: 'object',
             required: ['ids', 'set'],
@@ -219,12 +217,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       id: S.string(),
     })
 
-    f.delete<typeof sQuery.type>(
+    f.delete<{
+      Querystring: typeof sQuery.type
+    }>(
       '/',
       {
         schema: {
-          tags,
-          summary: 'Delete user-created items',
           querystring: sQuery.valueOf(),
         },
       },

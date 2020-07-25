@@ -51,7 +51,7 @@ import { Component, Vue } from 'nuxt-property-decorator'
 @Component
 export default class IndexPage extends Vue {
   async doLogin() {
-    if (!this.$store.state.user) {
+    if (!this.$accessor.user) {
       const provider = new this.$fireAuthObj.GoogleAuthProvider()
       await this.$fireAuth.signInWithPopup(provider)
     }

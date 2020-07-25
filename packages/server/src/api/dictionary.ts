@@ -7,8 +7,6 @@ import { checkAuthorize } from '@/util/api'
 import { sDictionaryType, sLevel, sStringNonEmpty } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const tags = ['dictionary']
-
   postSearch()
   getRandom()
   getAllLevels()
@@ -40,12 +38,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       ),
     })
 
-    f.post<any, any, any, typeof sBody.type>(
+    f.post<{
+      Body: typeof sBody.type
+    }>(
       '/q',
       {
         schema: {
-          tags,
-          summary: 'Search the dictionary',
           body: sBody.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -109,12 +107,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       ),
     })
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/random',
       {
         schema: {
-          tags,
-          summary: 'Randomize dictionary for a given level',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -180,12 +178,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       ),
     })
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/allLevels',
       {
         schema: {
-          tags,
-          summary: 'Get srs levels for every items',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),
@@ -262,12 +260,12 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       level: S.integer(),
     })
 
-    f.get<typeof sQuery.type>(
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
       '/currentLevel',
       {
         schema: {
-          tags,
-          summary: 'Get current level',
           querystring: sQuery.valueOf(),
           response: {
             200: sResponse.valueOf(),

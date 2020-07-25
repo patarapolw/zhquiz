@@ -1,3 +1,4 @@
+/* eslint-disable import/no-duplicates */
 import path from 'path'
 
 import fastify from 'fastify'
@@ -21,9 +22,9 @@ async function main() {
   const app = fastify({
     logger:
       process.env.NODE_ENV === 'development'
-        ? {
+        ? ({
             prettyPrint: true,
-          }
+          } as any)
         : true,
   })
   const port = parseInt(process.env.PORT || '8080')

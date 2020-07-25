@@ -4,8 +4,6 @@ import { DbUserModel } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  const tags = ['user']
-
   getOne()
   doUpdate()
   doDelete()
@@ -13,34 +11,27 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   next()
 
   function getOne() {
-    f.get(
-      '/',
-      {
-        schema: {
-          tags,
-          summary: 'Get user config',
-        },
-      },
-      async (req, reply) => {
-        const u = req.session.user
-        if (!u) {
-          return reply.status(404).send({
-            error: 'Not logged in',
-          })
-        }
-
-        return u
+    f.get('/', async (req, reply) => {
+      const u = req.session.get('user')
+      if (!u) {
+        return reply.status(404).send({
+          error: 'Not logged in',
+        })
       }
-    )
+
+      return u
+    })
   }
 
   function doUpdate() {
-    f.patch(
+    f.patch<{
+      Body: {
+        set: any
+      }
+    }>(
       '/',
       {
         schema: {
-          tags,
-          summary: 'Update user config',
           body: {
             type: 'object',
             required: ['set'],
