@@ -3,6 +3,8 @@ import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 import jieba from 'nodejieba'
 
+import { sStringNonEmpty } from '@/util/schema'
+
 export default (f: FastifyInstance, _: any, next: () => void) => {
   getJieba()
   getPinyin()
@@ -11,7 +13,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getJieba() {
     const sQuery = S.shape({
-      q: S.string(),
+      q: sStringNonEmpty,
     })
 
     const sResult = S.shape({
@@ -24,8 +26,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       '/jieba',
       {
         schema: {
-          // tags,
-          // summary: 'Cut chinese text into segments',
           querystring: sQuery.valueOf(),
           response: {
             200: sResult.valueOf(),
@@ -44,7 +44,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
 
   function getPinyin() {
     const sQuery = S.shape({
-      q: S.string(),
+      q: sStringNonEmpty,
     })
 
     const sResult = S.shape({
@@ -57,8 +57,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       '/pinyin',
       {
         schema: {
-          // tags,
-          // summary: 'Get pinyin from Chinese test',
           querystring: sQuery.valueOf(),
           response: {
             200: sResult.valueOf(),

@@ -1,33 +1,117 @@
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { DbCardModel, DbQuizModel } from '../db/mongo'
-import { checkAuthorize } from '../util'
+import { sDictType } from '@/db/local'
+import { DbQuizModel, DbUserModel, sDbQuiz, sQuizStat } from '@/db/mongo'
+import { checkAuthorize } from '@/util/api'
+import { sDateTime, sId, sQuizType, sSrsLevel } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  getCard()
-  doMark('right')
-  doMark('wrong')
-  doMark('repeat')
-  postEntries()
+  getById()
+  postGetByIds()
+  getByEntry()
+  postGetByEntries()
+  doMark()
+  getTagAll()
+  getInit()
+  doCreateByEntry()
+  doUpdateSet()
+  doDelete()
+  postDeleteByIds()
 
   next()
 
-  function getCard() {
+  function getById() {
     const sQuery = S.shape({
-      id: S.string(),
+      id: sId,
+      select: S.list(S.string()).minItems(1),
+    })
+
+    const sResponse = sDbQuiz
+
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
+      '/',
+      {
+        schema: {
+          querystring: sQuery.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { id, select } = req.query
+        const r = await DbQuizModel.findOne({
+          _id: id,
+          userId,
+        }).select(select.join(' '))
+
+        return r
+      }
+    )
+  }
+
+  function postGetByIds() {
+    const sBody = S.shape({
+      ids: S.list(S.string()),
+      select: S.list(S.string()),
     })
 
     const sResponse = S.shape({
-      front: S.string().optional(),
-      back: S.string().optional(),
-      mnemonic: S.string().optional(),
+      result: S.list(sDbQuiz),
+    })
+
+    f.post<{
+      Body: typeof sBody.type
+    }>(
+      '/ids',
+      {
+        schema: {
+          body: sBody.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { ids, select } = req.body
+        const result = await DbQuizModel.find({
+          _id: { $in: ids },
+          userId,
+        }).select(select.join(' '))
+
+        return { result }
+      }
+    )
+  }
+
+  function getByEntry() {
+    const sQuery = S.shape({
+      entry: S.string(),
+      select: S.list(S.string()).minItems(1),
+      type: S.anyOf(sDictType, S.string().enum('extra')),
+    })
+
+    const sResponse = S.shape({
+      result: S.list(sDbQuiz),
     })
 
     f.get<{
       Querystring: typeof sQuery.type
     }>(
-      '/card',
+      '/entry',
       {
         schema: {
           querystring: sQuery.valueOf(),
@@ -39,77 +123,43 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       async (req, reply): Promise<typeof sResponse.type> => {
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return {}
+          return undefined as any
         }
 
-        const { id } = req.query
-        const r = await DbCardModel.findOne({
-          _id: id,
+        const { entry, select, type: dictType } = req.query
+        let types: typeof sQuizType.type[] = ['extra-ce', 'extra-ec']
+        if (
+          dictType === 'hanzi' ||
+          dictType === 'vocab' ||
+          dictType === 'sentence'
+        ) {
+          types = ['char-ec', `${dictType}-ce` as any]
+        }
+
+        const result = (await DbQuizModel.find({
+          entry,
+          type: {
+            $in: types,
+          },
           userId,
-        }).select({
-          front: 1,
-          back: 1,
-          mnemonic: 1,
-        })
+        }).select(select.join(' '))) as any
 
-        return r ? r.toJSON() : {}
+        return {
+          result,
+        }
       }
     )
   }
 
-  function doMark(mark: 'right' | 'wrong' | 'repeat') {
-    const sQuery = S.shape({
-      id: S.string(),
-    })
-
-    f.patch<{
-      Querystring: typeof sQuery.type
-    }>(
-      `/${mark}`,
-      {
-        schema: {
-          querystring: sQuery.valueOf(),
-        },
-      },
-      async (req, reply) => {
-        const { id } = req.query
-
-        let quiz = await DbQuizModel.findOne({ cardId: id })
-        if (!quiz) {
-          quiz = await DbQuizModel.create({ cardId: id })
-        }
-
-        if (mark === 'right') {
-          quiz.markRight()
-        } else if (mark === 'wrong') {
-          quiz.markWrong()
-        } else {
-          quiz.markRepeat()
-        }
-
-        await quiz.save()
-
-        reply.status(201)
-        return null
-      }
-    )
-  }
-
-  function postEntries() {
+  function postGetByEntries() {
     const sBody = S.shape({
-      entries: S.list(S.string()),
-      type: S.string().enum('vocab'),
-      select: S.list(S.string().enum('cardId', 'entry', 'srsLevel')),
+      entries: S.list(S.string()).minItems(1),
+      select: S.list(sDbQuiz),
+      type: sQuizType,
     })
 
     const sResponse = S.shape({
-      result: S.list(
-        S.shape({
-          entry: S.string().optional(),
-          srsLevel: S.integer().optional(),
-          cardId: S.string().optional(),
-        })
-      ),
+      result: S.list(sDbQuiz),
     })
 
     f.post<{
@@ -124,53 +174,437 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
           },
         },
       },
+      async (req, reply): Promise<typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return undefined as any
+        }
+
+        const { entries, select, type } = req.body
+
+        const result = (await DbQuizModel.find({
+          entry: { $in: entries },
+          type,
+          userId,
+        }).select(select.join(' '))) as any
+
+        return {
+          result,
+        }
+      }
+    )
+  }
+
+  function doMark() {
+    const sQuery = S.shape({
+      id: sId,
+      type: S.string().enum('right', 'wrong', 'repeat'),
+    })
+
+    f.patch<{
+      Querystring: typeof sQuery.type
+    }>(
+      '/mark',
+      {
+        schema: {
+          querystring: sQuery.valueOf(),
+        },
+      },
       async (req, reply) => {
         const userId = checkAuthorize(req, reply)
         if (!userId) {
-          return null
+          return undefined as any
         }
 
-        const { entries, type, select } = req.body
+        const { id, type } = req.query
 
-        const r = await DbCardModel.aggregate([
-          {
-            $match: {
-              userId,
-              item: {
-                $in: entries,
-              },
-              type,
-            },
+        const quiz = await DbQuizModel.findOne({
+          userId,
+          _id: id,
+        })
+        if (!quiz) {
+          reply.status(404).send('no matching quizId')
+          return
+        }
+
+        ;({
+          right: () => quiz.markRepeat(),
+          wrong: () => quiz.markWrong(),
+          repeat: () => quiz.markRepeat(),
+        }[type]())
+
+        await quiz.save()
+
+        reply.status(201).send()
+      }
+    )
+  }
+
+  function getTagAll() {
+    const sResponse = S.shape({
+      tags: S.list(S.string()),
+    })
+
+    f.get(
+      '/tag/all',
+      {
+        schema: {
+          response: {
+            200: sResponse.valueOf(),
           },
+        },
+      },
+      async (
+        req,
+        reply
+      ): Promise<{
+        tags: []
+      }> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return {
+            tags: [],
+          }
+        }
+
+        const r = await DbQuizModel.aggregate([
+          { $match: { userId } },
           {
-            $lookup: {
-              from: 'quiz',
-              localField: '_id',
-              foreignField: 'cardId',
-              as: 'q',
+            $group: {
+              _id: null,
+              tags: { $addToSet: '$tag' },
             },
-          },
-          {
-            $project: Object.assign(
-              { _id: 0 },
-              select.reduce(
-                (prev, k) => ({
-                  ...prev,
-                  [k]: {
-                    cardId: '$_id',
-                    entry: '$item',
-                    srsLevel: { $ifNull: [{ $max: '$q.srsLevel' }, -1] },
-                  }[k],
-                }),
-                {} as any
-              )
-            ),
           },
         ])
 
         return {
-          result: r,
+          tags: ((r[0] || {}).tags || []).sort(),
         }
+      }
+    )
+  }
+
+  function getInit() {
+    const myStage = S.string().enum('new', 'leech', 'learning', 'graduated')
+
+    const sQuery = S.shape({
+      type: S.list(S.anyOf(sDictType, S.string().enum('extra'))),
+      stage: S.list(myStage),
+      direction: S.list(S.string()),
+      isDue: S.boolean().optional(),
+      tag: S.list(S.string()).optional(),
+    })
+
+    const sQuizItem = S.shape({
+      _id: sId,
+      srsLevel: sSrsLevel.optional(),
+      nextReview: sDateTime.optional(),
+      stat: sQuizStat.optional(),
+    })
+
+    const sResponse = S.shape({
+      quiz: S.list(sQuizItem),
+      upcoming: S.list(sDateTime).optional(),
+    })
+
+    f.get<{
+      Querystring: typeof sQuery.type
+    }>(
+      '/init',
+      {
+        schema: {
+          querystring: sQuery.valueOf(),
+          response: {
+            200: sResponse.valueOf(),
+          },
+        },
+      },
+      async (req, reply): Promise<typeof sResponse.type> => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return {
+            quiz: [],
+          }
+        }
+
+        const { type, stage, direction, isDue: _isDue, tag } = req.query
+        const isDue = !!_isDue
+
+        /**
+         * No need to await
+         */
+        DbUserModel.findByIdAndUpdate(userId, {
+          $set: {
+            'settings.quiz.type': type,
+            'settings.quiz.stage': stage,
+            'settings.quiz.direction': direction,
+            'settings.quiz.isDue': isDue,
+          },
+        })
+
+        const $or: any[] = []
+
+        if (stage.includes('new')) {
+          $or.push({
+            nextReview: { $exists: false },
+          })
+        }
+
+        if (stage.includes('leech')) {
+          $or.push({
+            'stat.streak.wrong': { $gte: 3 },
+          })
+        }
+
+        if (stage.includes('learning')) {
+          $or.push({
+            srsLevel: { $lt: 3 },
+          })
+        }
+
+        if (stage.includes('graduated')) {
+          $or.push({
+            srsLevel: { $gte: 3 },
+          })
+        }
+
+        const rs = await DbQuizModel.find({
+          $and: [
+            {
+              userId,
+              tag: tag ? { $in: tag } : undefined,
+            },
+            ...($or.length ? [{ $or }] : []),
+          ],
+        }).select('_id nextReview srsLevel stat')
+
+        if (isDue) {
+          const now = new Date()
+          const quiz: typeof sQuizItem.type[] = []
+          const upcoming: string[] = []
+
+          rs.map(({ nextReview, srsLevel, stat, _id }) => {
+            if (!nextReview || nextReview < now) {
+              quiz.push({ nextReview, srsLevel, stat, _id })
+            } else {
+              upcoming.push(nextReview.toISOString())
+            }
+          })
+
+          return {
+            quiz: quiz.sort(() => 0.5 - Math.random()),
+            upcoming: upcoming.sort(),
+          }
+        } else {
+          return {
+            quiz: rs.sort(() => 0.5 - Math.random()),
+          }
+        }
+      }
+    )
+  }
+
+  function doCreateByEntry() {
+    const sBody = S.shape({
+      entry: S.anyOf(S.string(), S.list(S.string())),
+      type: S.anyOf(sDictType, S.string().enum('extra')),
+      direction: S.list(S.string().enum('ce', 'ec')).minItems(1).optional(),
+    })
+
+    f.put<{
+      Body: typeof sBody.type
+    }>(
+      '/',
+      {
+        schema: {
+          body: sBody.valueOf(),
+        },
+      },
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { entry, type: dictType, direction = ['ce', 'ec'] } = req.body
+        const entries = Array.isArray(entry) ? entry : [entry]
+
+        const ce = direction.includes('ce')
+        const ec = direction.includes('ec')
+
+        try {
+          await DbQuizModel.insertMany(
+            entries.flatMap((entry) => {
+              const types: string[] = []
+              if (ce) {
+                types.push(dictType === 'extra' ? 'extra-ce' : 'char-ce')
+              }
+              if (ec) {
+                types.push(`${dictType}-ec`)
+              }
+
+              return types.map((type) => ({
+                userId,
+                entry,
+                type,
+              }))
+            }),
+            { ordered: false }
+          )
+        } catch (e) {
+          if (e.nInserted === 0) {
+            reply.status(304).send({
+              error: 'No quiz items created',
+            })
+            return
+          }
+
+          const writeCount = new Map<string, number>()
+
+          ;(e.writeErrors || []).map(({ op: { entry } }: any) => {
+            writeCount.set(entry, (writeCount.get(entry) || 0) + 1)
+          })
+
+          const failedEntries = Array.from(writeCount)
+            .filter(([, count]) => count >= 2)
+            .map(([k]) => k)
+
+          if (failedEntries.length) {
+            reply.status(304).send({
+              error: `The following quiz items failed to create: ${failedEntries.join(
+                ','
+              )}`,
+            })
+            return
+          }
+        }
+
+        reply.status(201).send()
+      }
+    )
+  }
+
+  function doUpdateSet() {
+    const sQuery = S.shape({
+      id: sId,
+    })
+
+    const sBody = S.shape({
+      set: S.shape({
+        front: S.string().optional(),
+        back: S.string().optional(),
+        mnemonic: S.string().optional(),
+        tag: S.list(S.string()).optional(),
+      }),
+    })
+
+    f.patch<{
+      Querystring: typeof sQuery.type
+      Body: typeof sBody.type
+    }>(
+      '/',
+      {
+        schema: {
+          querystring: sQuery.valueOf(),
+          body: sBody.valueOf(),
+        },
+      },
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { id } = req.query
+        const { set } = req.body
+
+        const $set: any = {}
+        const $unset: any = {}
+
+        Object.entries(set).map(([k, v]) => {
+          if (v === '') {
+            $unset[k] = ''
+          } else if (Array.isArray(v) && v.length === 0) {
+            $unset[k] = ''
+          } else {
+            $set[k] = v
+          }
+        })
+
+        await DbQuizModel.findOneAndUpdate(
+          {
+            userId,
+            _id: id,
+          },
+          {
+            $set,
+            $unset,
+          }
+        )
+
+        reply.status(201).send()
+      }
+    )
+  }
+
+  function doDelete() {
+    const sQuery = S.shape({
+      id: sId,
+    })
+
+    f.delete<{
+      Querystring: typeof sQuery.type
+    }>(
+      '/',
+      {
+        schema: {
+          querystring: sQuery.valueOf(),
+        },
+      },
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { id } = req.query
+        await DbQuizModel.deleteOne({
+          _id: id,
+          userId,
+        })
+
+        reply.status(201).send()
+      }
+    )
+  }
+
+  function postDeleteByIds() {
+    const sBody = S.shape({
+      ids: S.list(S.string()).minItems(1),
+    })
+
+    f.post<{
+      Body: typeof sBody.type
+    }>(
+      '/delete/ids',
+      {
+        schema: {
+          body: sBody.valueOf(),
+        },
+      },
+      async (req, reply) => {
+        const userId = checkAuthorize(req, reply)
+        if (!userId) {
+          return
+        }
+
+        const { ids } = req.body
+        await DbQuizModel.deleteMany({
+          _id: { $in: ids },
+          userId,
+        })
+
+        reply.status(201).send()
       }
     )
   }

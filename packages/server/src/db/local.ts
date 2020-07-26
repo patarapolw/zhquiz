@@ -1,63 +1,57 @@
-import fs from 'fs'
-
-import yaml from 'js-yaml'
-import S, { BaseSchema } from 'jsonschema-definer'
+import S from 'jsonschema-definer'
 import Loki, { Collection } from 'lokijs'
 import XRegExp from 'xregexp'
 
-export const hsk = yaml.safeLoad(
-  fs.readFileSync('assets/hsk.yaml', 'utf8')
-) as Record<string, string[]>
+import { sLevel } from '@/util/schema'
 
 export let zh: Loki
 
-export const sSentence = S.shape({
-  chinese: S.string(),
-  pinyin: S.string().optional(),
-  english: S.string(),
+export const sDictType = S.string().enum('hanzi', 'vocab', 'sentence')
+export type IDictType = typeof sDictType.type
+
+export const sDict = S.shape({
+  entry: S.string(),
+  alt: S.list(S.string()).minItems(1).uniqueItems().optional(),
+  reading: S.list(S.string()).minItems(1).uniqueItems(),
+  english: S.list(S.string()).minItems(1).uniqueItems(),
   frequency: S.number().optional(),
-  level: S.integer().optional(),
-  type: S.string().optional(),
+  level: sLevel.optional(),
 })
 
-export let zhSentence: Collection<typeof sSentence.type>
+export let zhDict: Record<IDictType, Collection<typeof sDict.type>>
 
 const reHan1 = XRegExp('^\\p{Han}$')
+export const sHan1 = S.string().custom((s) => reHan1.test(s))
 
 export const sToken = S.shape({
-  entry: S.string().custom((s) => reHan1.test(s)),
-  sub: S.string().optional(),
-  sup: S.string().optional(),
-  variants: S.string().optional(),
-  frequency: S.number().optional(),
-  level: S.integer().optional(),
-  tag: S.list(S.string()).optional(),
-  pinyin: S.string().optional(),
-  english: S.string().optional(),
+  entry: sHan1,
+  sub: S.list(sHan1).minItems(1).optional(),
+  sup: S.list(sHan1).minItems(1).optional(),
+  variants: S.list(sHan1).minItems(1).optional(),
 })
 
 export let zhToken: Collection<typeof sToken.type>
-
-export const sVocab = S.shape({
-  simplified: S.string(),
-  traditional: S.string().optional(),
-  pinyin: S.string().optional(),
-  english: S.string(),
-  frequency: S.number().optional(),
-})
-
-export let zhVocab: Collection<typeof sVocab.type>
 
 export async function zhInit(filename = 'assets/zh.loki') {
   return new Promise((resolve) => {
     zh = new Loki(filename, {
       autoload: true,
       autoloadCallback: async () => {
-        zhSentence = zh.getCollection('sentence')
-        if (!zhSentence) {
-          zhSentence = zh.addCollection('sentence', {
-            unique: [],
-          })
+        const createDict = (name: string) => {
+          let dict = zh.getCollection(name) as Collection<typeof sDict.type>
+          if (!dict) {
+            dict = zh.addCollection(name, {
+              unique: ['entry'],
+              indices: ['alt', 'frequency', 'level'],
+            })
+          }
+          return dict
+        }
+
+        zhDict = {
+          hanzi: createDict('hanzi'),
+          vocab: createDict('vocab'),
+          sentence: createDict('sentence'),
         }
 
         zhToken = zh.getCollection('token')
@@ -67,27 +61,8 @@ export async function zhInit(filename = 'assets/zh.loki') {
           })
         }
 
-        zhVocab = zh.getCollection('vocab')
-        if (!zhVocab) {
-          zhVocab = zh.addCollection('vocab', {
-            unique: [],
-          })
-        }
-
         resolve()
       },
     })
   })
-}
-
-export function ensureSchema<T extends BaseSchema>(
-  schema: T,
-  data: T['type']
-): T['type'] {
-  const [, err] = schema.validate(data)
-  if (err) {
-    throw new Error((err[0] || {}).message)
-  }
-
-  return data as any
 }

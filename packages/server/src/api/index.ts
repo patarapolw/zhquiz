@@ -3,17 +3,16 @@ import fs from 'fs'
 import { FastifyInstance } from 'fastify'
 import fSession from 'fastify-secure-session'
 import admin from 'firebase-admin'
+import rison from 'rison-node'
 
-import { DbUserModel } from '../db/mongo'
+import { DbUserModel } from '@/db/mongo'
 
-import cardRouter from './card'
 import chineseRouter from './chinese'
+import dictionaryRouter from './dictionary'
 import extraRouter from './extra'
-import hanziRouter from './hanzi'
 import quizRouter from './quiz'
-import sentenceRouter from './sentence'
+import tokenRouter from './token'
 import userRouter from './user'
-import vocabRouter from './vocab'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   admin.initializeApp({
@@ -31,7 +30,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     const m = /^Bearer (.+)$/.exec(req.headers.authorization || '')
 
     if (!m) {
-      reply.status(401).send(null)
+      reply.status(401).send()
       return
     }
 
@@ -46,14 +45,38 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
     }
   })
 
+  f.addHook<{
+    Querystring: Record<string, string | string[]>
+  }>('preValidation', (req) => {
+    if (req.query) {
+      Object.entries(req.query).map(([k, v]) => {
+        if (
+          [
+            'select',
+            'sort',
+            'type',
+            'direction',
+            'tag',
+            'offset',
+            'limit',
+            'page',
+            'perPage',
+            'count',
+          ].includes(k) ||
+          /^is[A-Z]/.test(k)
+        ) {
+          req.query[k] = rison.decode(v)
+        }
+      })
+    }
+  })
+
   f.register(chineseRouter, { prefix: '/chinese' })
-  f.register(sentenceRouter, { prefix: '/sentence' })
-  f.register(vocabRouter, { prefix: '/vocab' })
-  f.register(hanziRouter, { prefix: '/hanzi' })
-  f.register(cardRouter, { prefix: '/card' })
-  f.register(userRouter, { prefix: '/user' })
+  f.register(dictionaryRouter, { prefix: '/dictionary' })
   f.register(quizRouter, { prefix: '/quiz' })
   f.register(extraRouter, { prefix: '/extra' })
+  f.register(tokenRouter, { prefix: '/token' })
+  f.register(userRouter, { prefix: '/user' })
 
   next()
 }
