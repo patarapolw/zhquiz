@@ -52,6 +52,7 @@ export default (): Configuration => {
      */
     plugins: [
       '~/plugins/axios-loading.client.ts',
+      '~/plugins/axios-query.ts',
       '~/plugins/codemirror.client.js',
       '~/plugins/filter.ts',
       '~/plugins/firebase-auth.client.ts',
@@ -69,6 +70,7 @@ export default (): Configuration => {
     buildModules: [
       '@nuxt/typescript-build',
       '@nuxtjs/pwa',
+      'nuxt-typed-vuex',
       [
         '@nuxtjs/fontawesome',
         {
@@ -149,19 +151,7 @@ export default (): Configuration => {
      ** See https://nuxtjs.org/api/configuration-build/
      */
     build: {
-      extend: (config) => {
-        config.module!.rules.push({
-          test: /\.ya?ml$/,
-          type: 'json', // Required by Webpack v4
-          use: 'yaml-loader',
-        })
-      },
+      transpile: [/typed-vuex/],
     },
-    // server:
-    //   process.env.NODE_ENV === 'development'
-    //     ? {
-    //         host: '0.0.0.0', // default: localhost
-    //       }
-    //     : undefined,
   }
 }

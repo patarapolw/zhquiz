@@ -30,7 +30,8 @@
       "@nuxtjs/firebase",
       "buefy/types"
     ],
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noImplicitAny": false
   },
   "exclude": [
     "node_modules",

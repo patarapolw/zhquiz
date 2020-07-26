@@ -13,10 +13,11 @@
     "lint": "eslint --ext .ts,.js,.vue --ignore-path .gitignore ."
   },
   "dependencies": {
-    "@nuxt/typescript-runtime": "^0.4.10",
+    "@nuxt/types": "^2.13.3",
+    "@nuxt/typescript-runtime": "^1.0.0",
     "@nuxtjs/axios": "^5.11.0",
     "@nuxtjs/firebase": "^6.1.0",
-    "@types/codemirror": "^0.0.96",
+    "@types/codemirror": "^0.0.97",
     "@types/dompurify": "^2.0.2",
     "@types/he": "^1.1.1",
     "@types/markdown-it": "^10.0.1",
@@ -25,13 +26,17 @@
     "codemirror": "^5.55.0",
     "dayjs": "^1.8.29",
     "dompurify": "^2.0.12",
+    "encodeuri-plus": "^0.3.8",
     "firebase": "^7.15.5",
     "handlebars": "^4.7.6",
     "he": "^1.2.0",
     "hyperpug": "^1.5.3",
+    "jsonschema-definer": "^1.2.2",
     "markdown-it": "^11.0.0",
     "nuxt": "^2.13.0",
     "nuxt-buefy": "^0.3.31",
+    "nuxt-typed-vuex": "^0.1.19",
+    "rison-node": "^2.1.1",
     "spark-md5": "^3.0.1",
     "vue-codemirror": "^4.0.6",
     "vue-context": "^5.2.0",
@@ -40,7 +45,7 @@
   "devDependencies": {
     "@fortawesome/free-brands-svg-icons": "^5.13.0",
     "@fortawesome/free-solid-svg-icons": "^5.13.0",
-    "@nuxt/typescript-build": "^1.0.3",
+    "@nuxt/typescript-build": "^2.0.0",
     "@nuxtjs/eslint-config": "^3.0.0",
     "@nuxtjs/eslint-config-typescript": "^2.0.0",
     "@nuxtjs/eslint-module": "^2.0.0",
@@ -55,15 +60,15 @@
     "eslint-plugin-vue-a11y": "^0.0.31",
     "nuxt-property-decorator": "^2.7.2",
     "prettier": "^2.0.5",
-    "typescript": "~3.8",
-    "yaml-loader": "^0.6.0"
+    "typescript": "^3.9.7"
   },
   "resolutions": {
     "core-js": "2"
   },
   "engines": {
     "node": "12.x",
-    "npm": "please-use-yarn",
-    "yarn": "1.x"
+    "npm": "please-use-pnpm",
+    "yarn": "please-use-pnpm",
+    "pnpm": "5.x"
   }
 }

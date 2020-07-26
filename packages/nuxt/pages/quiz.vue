@@ -779,7 +779,7 @@ export default class QuizPage extends Vue {
       })
     }
 
-    let data = []
+    let data: any[] = []
 
     if ($or.length > 0) {
       const $and = [cond, { $or }]
