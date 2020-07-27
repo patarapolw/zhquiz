@@ -6,6 +6,7 @@ import admin from 'firebase-admin'
 import rison from 'rison-node'
 
 import { DbUserModel } from '@/db/mongo'
+import { filterObjValue, ser } from '@/util'
 
 import chineseRouter from './chinese'
 import dictionaryRouter from './dictionary'
@@ -25,6 +26,25 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   }
 
   f.register(fSession, { key: fs.readFileSync('session-key') })
+
+  f.addHook('preHandler', function (req, _, done) {
+    if (req.body && typeof req.body === 'object') {
+      req.log.debug(
+        {
+          body: filterObjValue(
+            req.body,
+            /**
+             * This will keep only primitives, nulls, plain objects, Date, and RegExp
+             * ArrayBuffer in file uploads will be removed.
+             */
+            (v) => ser.hash(v) === ser.hash(ser.clone(v))
+          ),
+        },
+        'parsed body'
+      )
+    }
+    done()
+  })
 
   f.addHook('preHandler', async (req, reply) => {
     const m = /^Bearer (.+)$/.exec(req.headers.authorization || '')

@@ -144,7 +144,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const { entry, reading, english } = req.body
 
         const existing = zhDict.vocab.findOne({
-          $or: [{ entry }, { alt: { $contains: entry } }],
+          $or: [{ entry }, { alt: { $in: entry } }],
         })
         if (existing) {
           return {

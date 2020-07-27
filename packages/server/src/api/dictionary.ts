@@ -4,7 +4,7 @@ import S from 'jsonschema-definer'
 import { sDictType, zhDict } from '@/db/local'
 import { DbQuizModel } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
-import { sLevel, sStringNonEmpty } from '@/util/schema'
+import { sLevel } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   postSearch()
@@ -17,7 +17,7 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   function postSearch() {
     const sBody = S.shape({
       strategy: S.string().enum('match', 'alt', 'contains'),
-      q: sStringNonEmpty.optional(),
+      q: S.anyOf(S.string(), S.list(S.string())).optional(),
       type: sDictType,
       select: S.list(
         S.string().enum('entry', 'alt', 'reading', 'english', 'frequency')
@@ -52,36 +52,51 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       },
       async (req): Promise<typeof sResponse.type> => {
         const { strategy, q, type, select, limit, exclude } = req.body
-        const qs = (q || '').split(' ')
+        const qs = Array.isArray(q) ? q : q ? [q] : []
 
-        const rs = zhDict[type].find({
-          $and: [
-            { entry: { $nin: exclude } },
-            ...(q && strategy === 'contains'
-              ? [
-                  {
-                    $or: [
-                      { entry: { $containsString: q } },
-                      { alt: { $containsString: q } },
-                    ],
+        const rs =
+          strategy === 'contains'
+            ? zhDict[type]
+                .chain()
+                .find({ entry: { $nin: exclude } })
+                .mapReduce(
+                  (o) => {
+                    ;(o as any)._q = o.alt
+                      ? [o.entry, ...o.alt].join('\x1f')
+                      : o.entry
+                    return o
                   },
-                ]
-              : []),
-            ...(qs.length
-              ? strategy === 'match'
-                ? [{ entry: { $in: qs } }]
-                : strategy === 'alt'
-                ? [{ $or: [{ entry: { $in: qs } }, { alt: { $in: qs } }] }]
-                : []
-              : []),
-          ],
-        })
+                  (vs: any[]) => {
+                    const prev: any = []
+                    vs.map((o) => {
+                      if (qs.some((el) => o._q.includes(el))) {
+                        prev.push(o)
+                      }
+                    })
+
+                    return prev
+                  }
+                )
+            : zhDict[type].find({
+                $and: [
+                  { entry: { $nin: exclude } },
+                  ...(qs.length
+                    ? strategy === 'alt'
+                      ? [
+                          {
+                            $or: [{ entry: { $in: qs } }, { alt: { $in: qs } }],
+                          },
+                        ]
+                      : [{ entry: { $in: qs } }]
+                    : []),
+                ],
+              })
 
         return {
           result: rs
             .slice(0, limit === -1 ? undefined : limit || 10)
             .sort(({ frequency: f1 = 0 }, { frequency: f2 = 0 }) => f2 - f1)
-            .map((r) =>
+            .map((r: any) =>
               select.reduce((prev, k) => ({ ...prev, [k]: r[k] }), {} as any)
             ),
         }

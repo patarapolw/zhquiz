@@ -32,7 +32,26 @@ export const logger = pino(
   process.env.NODE_ENV === 'development'
     ? {
         prettyPrint: true,
-        prettifier: require('pino-inspector'),
+        prettifier: function pinoInspector(opts: any) {
+          const pretty = require('pino-pretty')(opts)
+
+          return function prettifier(obj: any) {
+            const inspector = require('inspector')
+            if (inspector.url()) {
+              if (obj.level < 30) {
+                inspector.console.debug(obj)
+              } else if (obj.level >= 50) {
+                inspector.console.error(obj)
+              } else if (obj.level >= 40) {
+                inspector.console.warn(obj)
+              } else {
+                inspector.console.log(obj)
+              }
+            }
+
+            return pretty(obj)
+          }
+        },
       }
     : gcloudConf
 )

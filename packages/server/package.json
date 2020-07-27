@@ -20,6 +20,7 @@
   "dependencies": {
     "@typegoose/typegoose": "^7.0.0",
     "@types/mongoose": "^5.7.12",
+    "any-serialize": "^1.4.12",
     "chinese-to-pinyin": "^1.3.1",
     "dayjs": "^1.8.25",
     "fastify": "^3.1.1",
@@ -47,7 +48,6 @@
     "@types/xregexp": "^4.3.0",
     "@typescript-eslint/eslint-plugin": "^3.4.0",
     "@typescript-eslint/parser": "^3.4.0",
-    "any-serialize": "^1.4.12",
     "babel-plugin-module-resolver": "^4.0.0",
     "eslint": ">=6.2.2",
     "eslint-config-prettier": "^6.11.0",
@@ -61,14 +61,13 @@
     "fastify-cors": "^4.1.0",
     "js-yaml": "^3.13.1",
     "log-buffer": "^0.0.3",
-    "pino-inspector": "^0.1.0",
     "pino-pretty": "^4.1.0",
     "prettier": "^2.0.5",
     "rimraf": "^3.0.2",
     "ts-node": "^8.10.2",
     "ts-node-dev": "^1.0.0-pre.44",
     "tsconfig-paths": "^3.9.0",
-    "typescript": "^3.8.3"
+    "typescript": "^3.9.7"
   },
   "optionalDependencies": {
     "@types/better-sqlite3": "^5.4.0",

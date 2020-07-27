@@ -58,6 +58,7 @@ export async function zhInit(filename = 'assets/zh.loki') {
         if (!zhToken) {
           zhToken = zh.addCollection('token', {
             unique: ['entry'],
+            indices: ['variants'],
           })
         }
 

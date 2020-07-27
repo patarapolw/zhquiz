@@ -1,6 +1,7 @@
 dependencies:
   '@typegoose/typegoose': 7.3.0_18f12d4e99a558cef9d8465d46786c23
   '@types/mongoose': 5.7.32
+  any-serialize: 1.4.12
   chinese-to-pinyin: 1.3.1
   dayjs: 1.8.30
   fastify: 3.1.1
@@ -27,7 +28,6 @@ devDependencies:
   '@types/xregexp': 4.3.0
   '@typescript-eslint/eslint-plugin': 3.7.0_a7d792035c43f2b80bcf395c5516fe5c
   '@typescript-eslint/parser': 3.7.0_eslint@7.5.0+typescript@3.9.7
-  any-serialize: 1.4.12
   babel-plugin-module-resolver: 4.0.0
   eslint: 7.5.0
   eslint-config-prettier: 6.11.0_eslint@7.5.0
@@ -41,7 +41,6 @@ devDependencies:
   fastify-cors: 4.1.0
   js-yaml: 3.14.0
   log-buffer: 0.0.3
-  pino-inspector: 0.1.0
   pino-pretty: 4.1.0
   prettier: 2.0.5
   rimraf: 3.0.2
@@ -771,7 +770,7 @@ packages:
     resolution:
       integrity: sha512-9VGjrMsG1vePxcSweQsN20KY/c4zN0h9fLjqAbwbPfahM3t+NL+M9HC8xeXG2I8pX5NoamTGNuomEUFI7fcUjA==
   /any-serialize/1.4.12:
-    dev: true
+    dev: false
     engines:
       yarn: 1.x
     resolution:
@@ -2020,10 +2019,6 @@ packages:
     dev: true
     resolution:
       integrity: sha512-xJuoT5+L99XlZ8twedaRf6Ax2TgQVxvgZOYoPKqZufmJib0tL2tegPBOZb1pVNgIhlqDlA0eO0c3wBvQcmzx4w==
-  /fast-json-parse/1.0.3:
-    dev: true
-    resolution:
-      integrity: sha512-FRWsaZRWEJ1ESVNbDWmsAlqDk96gPQezzLghafp5J4GUKjbCz3OkAHuZs5TuPEtkbVQERysLp9xv6c24fBm8Aw==
   /fast-json-stable-stringify/2.1.0:
     resolution:
       integrity: sha512-lhd/wF+Lk98HZoTCtlVraHtfh5XYijIjalXck7saUtuanSDyLMxnHhSXEDJqHxD7msR8D0uCmqlkwjCV8xvwHw==
@@ -4068,30 +4063,6 @@ packages:
       node: '>=0.10.0'
     resolution:
       integrity: sha1-clVrgM+g1IqXToDnckjoDtT3+HA=
-  /pino-inspector/0.1.0:
-    dependencies:
-      pino-pretty: 2.6.1
-      semver: 5.7.1
-    dev: true
-    engines:
-      node: '>= 10.12.0'
-    resolution:
-      integrity: sha512-LboJpi11OlEHGfIEB5/nWfEOIOIUAYaBFu2s/eTP/jS17oeAuThk+HPDRO4VYlM4K1a4Z41cyMcM+xeCVDCqbw==
-  /pino-pretty/2.6.1:
-    dependencies:
-      args: 5.0.1
-      chalk: 2.4.2
-      dateformat: 3.0.3
-      fast-json-parse: 1.0.3
-      fast-safe-stringify: 2.0.7
-      jmespath: 0.15.0
-      pump: 3.0.0
-      readable-stream: 3.6.0
-      split2: 3.1.1
-    dev: true
-    hasBin: true
-    resolution:
-      integrity: sha512-e/CWtKLidqkr7sinfIVVcsfcHgnFVlGvuEfKuuPFnxBo+9dZZsmgF8a9Rj7SYJ5LMZ8YBxNY9Ca46eam4ajKtQ==
   /pino-pretty/4.1.0:
     dependencies:
       '@hapi/bourne': 2.0.0
@@ -5499,7 +5470,6 @@ specifiers:
   nanoid: ^3.1.3
   nodejieba: ^2.4.1
   pino: ^6.4.1
-  pino-inspector: ^0.1.0
   pino-pretty: ^4.1.0
   prettier: ^2.0.5
   rimraf: ^3.0.2
@@ -5507,5 +5477,5 @@ specifiers:
   ts-node: ^8.10.2
   ts-node-dev: ^1.0.0-pre.44
   tsconfig-paths: ^3.9.0
-  typescript: ^3.8.3
+  typescript: ^3.9.7
   xregexp: ^4.3.0
