@@ -209,8 +209,8 @@ export default class LevelPage extends Vue {
     this.$set(this, 'currentData', this.currentData)
   }
 
-  getTagClass(item: string) {
-    const srsLevel = this.srsLevel[item]
+  getTagClass(entry: string) {
+    const srsLevel = this.srsLevel[entry]
 
     if (typeof srsLevel !== 'undefined') {
       if (srsLevel === -1) {

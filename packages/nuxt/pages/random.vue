@@ -272,21 +272,21 @@ import { speak } from '~/assets/speak'
 export default class RandomPage extends Vue {
   hanzi = {
     type: 'hanzi',
-    item: null,
+    entry: null,
     english: null,
     id: [],
   }
 
   vocab = {
     type: 'vocab',
-    item: null,
+    entry: null,
     english: null,
     id: [],
   }
 
   sentence = {
     type: 'sentence',
-    item: null,
+    entry: null,
     english: null,
     id: [],
   }
@@ -304,9 +304,9 @@ export default class RandomPage extends Vue {
       '1': () => this.loadHanzi(),
       '2': () => this.loadVocab(),
       '3': () => this.loadSentence(),
-      q: () => this.speak(this.hanzi.item),
-      w: () => this.speak(this.vocab.item),
-      e: () => this.speak(this.sentence.item),
+      q: () => this.speak(this.hanzi.entry),
+      w: () => this.speak(this.vocab.entry),
+      e: () => this.speak(this.sentence.entry),
     })
   }
 
@@ -328,7 +328,7 @@ export default class RandomPage extends Vue {
         }
       )
 
-      this.hanzi.item = result
+      this.hanzi.entry = result
       this.hanzi.english = english
     }
   }
@@ -345,7 +345,7 @@ export default class RandomPage extends Vue {
         }
       )
 
-      this.vocab.item = result
+      this.vocab.entry = result
       this.vocab.english = english
     }
   }
@@ -361,46 +361,46 @@ export default class RandomPage extends Vue {
           },
         }
       )
-      this.sentence.item = result
+      this.sentence.entry = result
       this.sentence.english = english
     }
   }
 
-  async getQuizStatus(item: any) {
+  async getQuizStatus(it: any) {
     const vm = this as any
 
     const { result } = await this.$axios.$get('/api/quiz/entry', {
       params: {
-        entry: item.item,
-        type: item.type,
+        entry: it.entry,
+        type: it.type,
         select: ['_id'],
       },
     })
 
     this.$set(
-      vm[item.type],
+      vm[it.type],
       'id',
       result.map((el: any) => el._id)
     )
   }
 
-  async addToQuiz(item: any) {
+  async addToQuiz(it: any) {
     await this.$axios.$put('/api/quiz/', {
-      entry: item.item,
-      type: item.type,
+      entry: it.entry,
+      type: it.type,
     })
 
-    this.$buefy.snackbar.open(`Added ${item.type}: ${item.item} to quiz`)
+    this.$buefy.snackbar.open(`Added ${it.type}: ${it.entry} to quiz`)
   }
 
-  async removeFromQuiz(item: any) {
+  async removeFromQuiz(it: any) {
     const vm = this as any
 
     await this.$axios.$post('/api/quiz/delete/ids', {
-      ids: vm[item.type].id,
+      ids: vm[it.type].id,
     })
 
-    this.$buefy.snackbar.open(`Removed ${item.type}: ${item.item} from quiz`)
+    this.$buefy.snackbar.open(`Removed ${it.type}: ${it.entry} from quiz`)
   }
 }
 </script>

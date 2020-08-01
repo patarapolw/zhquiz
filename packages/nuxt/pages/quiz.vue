@@ -683,8 +683,8 @@ export default class QuizPage extends Vue {
     const data = this.dictionaryData[type][entry] || {}
 
     return {
-      item: entry,
-      raw: data,
+      entry,
+      data,
     }
   }
 

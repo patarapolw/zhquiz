@@ -570,16 +570,16 @@ export default class HanziPage extends Vue {
     }
   }
 
-  async addToQuiz(item: string, type: string) {
-    await this.$axios.$put('/api/quiz/', { item, type })
-    this.$buefy.snackbar.open(`Added ${type}: ${item} to quiz`)
+  async addToQuiz(entry: string, type: string) {
+    await this.$axios.$put('/api/quiz/', { entry, type })
+    this.$buefy.snackbar.open(`Added ${type}: ${entry} to quiz`)
 
     type === 'vocab' ? this.loadVocabStatus() : this.loadHanziStatus()
   }
 
-  async removeFromQuiz(item: string, type: string) {
+  async removeFromQuiz(entry: string, type: string) {
     const ids =
-      (type === 'vocab' ? this.vocabIds[item] : this.hanziIds[item]) || []
+      (type === 'vocab' ? this.vocabIds[entry] : this.hanziIds[entry]) || []
     await Promise.all(
       ids.map((id: string) =>
         this.$axios.$delete('/api/quiz/', {
@@ -587,7 +587,7 @@ export default class HanziPage extends Vue {
         })
       )
     )
-    this.$buefy.snackbar.open(`Removed ${type}: ${item} from quiz`)
+    this.$buefy.snackbar.open(`Removed ${type}: ${entry} from quiz`)
 
     type === 'vocab' ? this.loadVocabStatus() : this.loadHanziStatus()
   }
