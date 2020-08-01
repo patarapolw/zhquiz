@@ -9,7 +9,6 @@ dependencies:
   fastify-secure-session: 2.2.1
   fastify-static: 3.2.0
   firebase-admin: 9.0.0
-  js-yaml: 3.14.0
   jsonschema-definer: 1.2.2
   lokijs: 1.5.9
   mongoose: 5.9.25_mongoose@5.9.25
@@ -40,6 +39,7 @@ devDependencies:
   eslint-plugin-simple-import-sort: 5.0.3_eslint@7.5.0
   eslint-plugin-standard: 4.0.1_eslint@7.5.0
   fastify-cors: 4.1.0
+  js-yaml: 3.14.0
   log-buffer: 0.0.3
   pino-pretty: 4.1.0
   prettier: 2.0.5
@@ -814,6 +814,7 @@ packages:
   /argparse/1.0.10:
     dependencies:
       sprintf-js: 1.0.3
+    dev: true
     resolution:
       integrity: sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg==
   /args/5.0.1:
@@ -1886,6 +1887,7 @@ packages:
     resolution:
       integrity: sha512-H+cQ3+3JYRMEIOl87e7QdHX70ocly5iW4+dttuR8iYSPr/hXKFb+7dBsZ7+u1adC4VrnPlTkv0+OwuPnDop19g==
   /esprima/4.0.1:
+    dev: true
     engines:
       node: '>=4'
     hasBin: true
@@ -3037,6 +3039,7 @@ packages:
     dependencies:
       argparse: 1.0.10
       esprima: 4.0.1
+    dev: true
     hasBin: true
     resolution:
       integrity: sha512-/4IbIeHcD9VMHFqDR/gQ7EdZdLimOvW2DdcxFjdyyZ9NsbS+ccrXqVWDtab/lRl5AlUqmpBx8EhPaWR+OtY17A==
@@ -4777,6 +4780,7 @@ packages:
     resolution:
       integrity: sha512-emNzr1s7ruq4N+1993yht631/JH+jaj0NYBosuKmLcq+JkGQ9MmTw1RB1fGaTCzUuseRIClrlSLHRNYGwWQ58Q==
   /sprintf-js/1.0.3:
+    dev: true
     resolution:
       integrity: sha1-BOaSb2YolTVPPdAVIDYzuFcpfiw=
   /static-extend/0.1.2:
@@ -5458,7 +5462,7 @@ specifiers:
   fastify-secure-session: ^2.2.1
   fastify-static: ^3.2.0
   firebase-admin: ^9.0.0
-  js-yaml: ^3.13.1
+  js-yaml: ^3.14.0
   jsonschema-definer: ^1.2.2
   log-buffer: ^0.0.3
   lokijs: ^1.5.9

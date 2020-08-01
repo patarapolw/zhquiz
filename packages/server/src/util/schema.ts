@@ -16,7 +16,8 @@ export const sId = S.string().minLength(21)
  * Project specific
  */
 export const sQuizDirection = S.string().enum('se', 'te', 'ec')
-export const sQuizType = S.string().enum('hanzi', 'vocab', 'sentence', 'extra')
+export const sDictType = S.string().enum('hanzi', 'vocab', 'sentence')
+export const sQuizType = S.anyOf(sDictType, S.string().enum('extra'))
 export const sSort = (ks: string[]) =>
   S.string().enum(...ks.flatMap((k) => [k, `-${k}`]))
 export const sSrsLevel = S.integer()
