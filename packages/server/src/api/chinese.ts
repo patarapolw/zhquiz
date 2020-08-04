@@ -55,8 +55,6 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
       '/pinyin',
       {
         schema: {
-          // tags,
-          // summary: 'Get pinyin from Chinese test',
           querystring: sQuery.valueOf(),
           response: {
             200: sResult.valueOf(),

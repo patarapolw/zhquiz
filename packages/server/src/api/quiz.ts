@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { zhVocab } from '@/db/local'
+import { zhDict } from '@/db/local'
 import { DbQuizModel, DbUserModel, sDbQuizExport } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
 import {
@@ -438,10 +438,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const entries = Array.isArray(entry) ? entry : [entry]
 
         if (type === 'vocab' && direction.includes('te')) {
-          const v = zhVocab.findOne({
-            $or: [{ simplified: entry }, { traditional: { $contains: entry } }],
+          const v = zhDict.vocab.findOne({
+            $or: [{ entry }, { alt: { $in: entry } }],
           })
-          if (!v || !v.traditional) {
+          if (!v || !v.alt || !v.alt.length) {
             const i = direction.indexOf('te')
             if (i !== -1) {
               direction.splice(i, 1)

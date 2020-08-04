@@ -9,12 +9,10 @@ import { filterObjValue, ser } from '@/util'
 import { parseQuery } from '@/util/query'
 
 import chineseRouter from './chinese'
+import dictRouter from './dict'
 import extraRouter from './extra'
-import hanziRouter from './hanzi'
 import quizRouter from './quiz'
-import sentenceRouter from './sentence'
 import userRouter from './user'
-import vocabRouter from './vocab'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
   admin.initializeApp({
@@ -72,12 +70,10 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
   })
 
   f.register(chineseRouter, { prefix: '/chinese' })
-  f.register(sentenceRouter, { prefix: '/sentence' })
-  f.register(vocabRouter, { prefix: '/vocab' })
-  f.register(hanziRouter, { prefix: '/hanzi' })
+  f.register(dictRouter, { prefix: '/dict' })
+  f.register(extraRouter, { prefix: '/extra' })
   f.register(userRouter, { prefix: '/user' })
   f.register(quizRouter, { prefix: '/quiz' })
-  f.register(extraRouter, { prefix: '/extra' })
 
   next()
 }

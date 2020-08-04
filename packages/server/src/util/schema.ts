@@ -1,9 +1,9 @@
-import S, { BaseSchema } from 'jsonschema-definer'
+import S, { BaseSchema, ObjectSchema } from 'jsonschema-definer'
 
 import { srsMap } from '@/db/quiz'
 
 export const sDateTime = S.anyOf(
-  S.object().custom((o) => o instanceof Date),
+  S.object().custom((o) => o instanceof Date) as ObjectSchema<Date>,
   S.string().format('date-time')
 )
 export const sStringNonEmpty = S.string().pattern(/[^\s]/)

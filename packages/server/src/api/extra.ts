@@ -2,115 +2,17 @@ import makePinyin from 'chinese-to-pinyin'
 import { FastifyInstance } from 'fastify'
 import S from 'jsonschema-definer'
 
-import { zhSentence, zhToken, zhVocab } from '@/db/local'
+import { zhDict } from '@/db/local'
 import { DbExtraModel, sDbExtraExport } from '@/db/mongo'
 import { checkAuthorize } from '@/util/api'
-import { sId, sQuizType, sSort, sStringNonEmpty } from '@/util/schema'
+import { sId, sQuizType } from '@/util/schema'
 
 export default (f: FastifyInstance, _: any, next: () => void) => {
-  getQ()
-  getMatch()
   doCreate()
   doUpdate()
   doDelete()
 
   next()
-
-  function getQ() {
-    const sQuery = S.shape({
-      select: S.list(S.string()).minItems(1),
-      sort: S.list(sSort(['chinese', 'pinyin', 'english', 'updatedAt']))
-        .minItems(1)
-        .optional(),
-      page: S.integer().minimum(1),
-      perPage: S.integer().minimum(10).optional(),
-    })
-
-    const sResponse = S.shape({
-      result: S.list(sDbExtraExport),
-      count: S.integer().optional(),
-    })
-
-    f.get<{
-      Querystring: typeof sQuery.type
-    }>(
-      '/q',
-      {
-        schema: {
-          querystring: sQuery.valueOf(),
-          response: {
-            200: sResponse.valueOf(),
-          },
-        },
-      },
-      async (req, reply): Promise<typeof sResponse.type> => {
-        const userId = checkAuthorize(req, reply)
-        if (!userId) {
-          return undefined as any
-        }
-
-        const {
-          select,
-          sort = ['-updatedAt'],
-          page = 1,
-          perPage = 10,
-        } = req.query
-        const offset = (page - 1) * perPage
-
-        const result = await DbExtraModel.find({
-          userId,
-        })
-          .sort(sort.join(' '))
-          .select(select.join(' '))
-          .skip(offset)
-          .limit(perPage)
-
-        const count = await DbExtraModel.countDocuments({ userId })
-
-        return {
-          result,
-          count,
-        }
-      }
-    )
-  }
-
-  function getMatch() {
-    const sQuery = S.shape({
-      entry: sStringNonEmpty,
-      select: S.list(S.string()).minItems(1).optional(),
-    })
-
-    const sResponse = sDbExtraExport
-
-    f.get<{
-      Querystring: typeof sQuery.type
-    }>(
-      '/',
-      {
-        schema: {
-          querystring: sQuery.valueOf(),
-          response: {
-            200: sResponse.valueOf(),
-          },
-        },
-      },
-      async (req, reply): Promise<typeof sResponse.type> => {
-        const userId = checkAuthorize(req, reply)
-        if (!userId) {
-          return undefined as any
-        }
-
-        const { entry, select = ['chinese', 'pinyin', 'english'] } = req.query
-        const r = await DbExtraModel.findOne({
-          userId,
-          entry,
-        }).select(select.join(' '))
-
-        return r || {}
-      }
-    )
-  }
 
   function doCreate() {
     const sBody = S.shape({
@@ -148,23 +50,22 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
         const { chinese, pinyin, english } = req.body
 
         {
-          const existing = zhVocab.findOne({
-            $or: [{ simplified: chinese }, { traditional: { $in: chinese } }],
+          const existing = zhDict.vocab.findOne({
+            $or: [{ entry: chinese }, { alt: { $in: chinese } }],
           })
           if (existing) {
             return {
               existing: {
                 type: 'vocab',
-                entry: existing.simplified,
+                entry: existing.entry,
               },
             }
           }
         }
 
         if (chinese.length === 1) {
-          const existing = zhToken.findOne({
+          const existing = zhDict.hanzi.findOne({
             entry: chinese,
-            english: { $ne: undefined },
           })
           if (existing) {
             return {
@@ -175,8 +76,8 @@ export default (f: FastifyInstance, _: any, next: () => void) => {
             }
           }
         } else {
-          const existing = zhSentence.findOne({
-            chinese,
+          const existing = zhDict.sentence.findOne({
+            entry: chinese,
           })
           if (existing) {
             return {

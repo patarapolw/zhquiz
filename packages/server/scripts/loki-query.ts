@@ -1,15 +1,16 @@
 /* eslint-disable no-console */
-import { zh, zhInit, zhVocab } from '@/db/local'
+import { zh, zhDict, zhInit } from '@/db/local'
 
 async function main() {
   await zhInit()
 
-  const qs = ['到达', '麻烦']
-
   console.log(
-    zhVocab.find({
-      $or: [{ simplified: { $in: qs } }, { traditional: { $in: qs } }],
-    })
+    zhDict.sentence
+      .find()
+      .reduce(
+        (prev, { entry }) => (prev < entry.length ? entry.length : prev),
+        0
+      )
   )
 
   zh.close()
